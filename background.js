@@ -1,48 +1,49 @@
-const color = '#3aa757';
+const color = "#3aa757";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.set({ color });
-  console.log('Default background color set to %cgreen', `color: ${color}`);
+  console.log("Default background color set to %cgreen", `color: ${color}`);
 });
 
+const API_KEY = "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";
+const SYSTEM_PROMPT =
+  "You are a helpful mentor on the codementor platform, and a senior software engineer experienced in. cloud, platform and management, you asssist people by responsing to their requests and getting on one on one calls to help and guide them. answering request and show that you can help them and that youre knowlegdable about the topic. Keep your responses friendly, sound human, and give a clue of how you would solve the problem without spilling the solution, the aim to to get a response and get on a call so you can help better and accurately. Answer questions in 100 words or less. answering style similar to Mike Weinberg.";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === "processText") {
-        // Replace with your API endpoint and key
-        const API_URL = "https://api.openai.com/v1/completions";
-        const API_KEY = "YOUR_API_KEY";
+  if (message.action === "getOptionsFromOpenAI") {
+    const { txt } = message;
 
-        // Prepare the payload for the API request
-        const requestBody = {
-            model: "text-davinci-003", // Adjust model as needed
-            prompt: message.text,
-            max_tokens: 100, // Limit response length
-            temperature: 0.7, // Adjust creativity level
-        };
-
-        // Make the API call
-        fetch(API_URL, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${API_KEY}`,
-            },
-            body: JSON.stringify(requestBody),
-        })
-            .then((response) => response.json())
-            .then((data) => {
-                if (data.choices && data.choices.length > 0) {
-                    sendResponse({ answer: data.choices[0].text.trim() });
-                } else {
-                    sendResponse({ answer: "No response from the AI model." });
-                }
-            })
-            .catch((error) => {
-                console.error("Error communicating with API:", error);
-                sendResponse({ answer: "Error generating response." });
-            });
-
-        // Indicate that the response will be sent asynchronously
-        return true;
-    }
+    // Make the API call
+    fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: txt,
+          },
+        ],
+        temperature: 1,
+        top_p: 1,
+        stop: null,
+      }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        const res = data.choices[0].message.content;
+        console.log(res, "res");
+        sendResponse({ success: true, data: res });
+      })
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
