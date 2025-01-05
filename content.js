@@ -3,39 +3,36 @@ function createButton(label) {
   const newButton = document.createElement("button");
   newButton.textContent = label;
   newButton.style.cssText = `
-    cursor: pointer;
-    color: #374151; /* Neutral gray text color */
-    background-color: #ffffff; /* White background */
-    border: 1px solidrgb(228, 243, 247); /* Light gray border */
-    border-radius: 2px; /* Rounded corners for modern look */
-    box-shadow: 0 1px 2px #00b5e2; /* Subtle shadow for depth */
-    padding: 2px 2px; /* Compact padding */
-    font-family: 'Open Sans', sans-serif; /* Modern font */
-    font-weight: 400; /* Medium font weight for readability */
-    font-size: 10px; /* Small font size */
-    line-height: 1.3; /* Comfortable line spacing */
-    display: inline-flex;
-    text-align: left; 
-    // align-items: center; /* Center content vertically */
-    // justify-content: center; /* Center content horizontally */
-    transition: all 0.2s ease-in-out; /* Smooth transition for hover effects */
+  cursor: pointer;
+  color: #2f3e46; /* Darker text color for better readability */
+  background-color: #ffffff; /* White background */
+  border: 1px solid #d3e1e8; /* Soft light gray border */
+  border-radius: 8px; /* Rounded corners for a smoother, softer look */
+  box-shadow: 0 1px 3px #027E6F; /* Subtle shadow for depth */
+  padding: 8px 8px; /* Slightly larger padding for better touch targets */
+  font-family: 'Inter', sans-serif; /* Clean and modern font */
+  font-weight: 400; /* Medium weight for readability */
+  font-size: 10px; /* Slightly larger font size */
+  line-height: 1.5; /* Comfortable line spacing */
+  display: inline-flex;
+  text-align: left; 
+  transition: all 0.2s ease-in-out; /* Smooth transition for hover effects */
 `;
 
+newButton.addEventListener("mouseover", () => {
+  newButton.style.backgroundColor = "#f6f9fc"; /* Light gray with a hint of blue on hover */
+  newButton.style.boxShadow = "0 4px 6px rgba(0, 0, 0, 0.1)"; /* Slightly enhanced shadow */
+  newButton.style.transform = "scale(1.05)"; /* Slight zoom effect on hover */
+});
 
+newButton.addEventListener("mouseout", () => {
+  newButton.style.backgroundColor = "#ffffff"; /* Revert to white */
+  newButton.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.1)"; /* Revert shadow */
+  newButton.style.transform = "scale(1)"; /* Revert zoom effect */
+});
 
-  newButton.addEventListener("mouseover", () => {
-    newButton.style.backgroundColor = "#f3f4f6"; /* Light gray on hover */
-    newButton.style.boxShadow =
-      "0 2px 4px rgba(0, 0, 0, 0.1)"; /* Enhanced shadow on hover */
-  });
-
-  newButton.addEventListener("mouseout", () => {
-    newButton.style.backgroundColor = "#ffffff"; /* Revert to white */
-    newButton.style.boxShadow =
-      "0 1px 2px rgba(0, 0, 0, 0.05)"; /* Revert shadow */
-  });
-
-  newButton.addEventListener("click", () => {
+  newButton.addEventListener("click", (event) => {
+    event.preventDefault();
     const textField = document.querySelector("form textarea");
     if (textField) {
       // Append the label instead of replacing the text
