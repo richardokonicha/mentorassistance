@@ -1,56 +1,63 @@
-const color = "#3aa757";
+/**
+ * AI Auto Answer - Background Service Worker
+ * Manifest V3 Chrome Extension for CodeMentor
+ */
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.sync.set({ color });
-  console.log("Default background color set to %cgreen", `color: ${color}`);
-});
+// ============================================================================
+// CONFIGURATION - API keys injected at build time from .env.local
+// ============================================================================
 
-// Model configuration - Nemotron 3 Ultra (free) via Kilo primary, Groq fallback
 const MODEL_CONFIG = {
   primary: {
     name: "kilo-nemotron-3-ultra",
     endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
     model: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    apiKey: "REDACTED_KILO_KEY",
-    enabled: true
+    apiKey: "REDACTED_KILO_KEY", // Injected at build
+    enabled: true,
+    supportsReasoning: true,
+    timeoutMs: 30000
   },
   fallback: {
     name: "groq-llama-3.3-70b",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     model: "llama-3.3-70b-versatile",
-    apiKey: "REDACTED_GROQ_KEY",
-    enabled: true
+    apiKey: "REDACTED_GROQ_KEY", // Injected at build
+    enabled: true,
+    supportsReasoning: false,
+    timeoutMs: 30000
   }
 };
 
-// Gemini embedding config (for future semantic similarity)
 const EMBEDDING_CONFIG = {
-  apiKey: "REDACTED_GEMINI_KEY",
+  apiKey: "REDACTED_GEMINI_KEY", // Injected at build
   endpoint: "https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent",
   enabled: true
 };
 
-// Voice Profile - based on your actual CodeMentor responses
+// ============================================================================
+// VOICE PROFILE - Built from 4 real CodeMentor responses
+// ============================================================================
+
 const VOICE_PROFILE = {
   // Tone & Voice
-  formality: "casual-direct", // casual, conversational, not corporate
-  directness: "high", // gets to the point fast
-  warmth: "medium-high", // personable, uses names, shows genuine interest
-  humor: "dry-witty", // self-deprecating, cheeky, "wildcard"
-  
+  formality: "casual-direct",
+  directness: "high",
+  warmth: "medium-high",
+  humor: "dry-witty",
+
   // Structural Patterns
   avgSentences: 3,
   maxParagraphs: 2,
-  useLists: false, // never uses bullet points in responses
-  questionFrequency: "high", // ends with call-to-action question
-  
+  useLists: false,
+  questionFrequency: "high",
+
   // Language Markers
-  contractions: true, // heavy: i'd, you're, let's, i've, don't, can't
-  technicalSpecificity: "high", // names tools, versions, architectures
-  opinionationStrength: "strong", // takes clear positions
-  hedgingFrequency: "very-low", // no "it depends", "generally speaking"
-  
-  // Anti-patterns (things you NEVER do)
+  contractions: true,
+  technicalSpecificity: "high",
+  opinionationStrength: "strong",
+  hedgingFrequency: "very-low",
+
+  // Anti-patterns (things you NEVER say)
   bannedPhrases: [
     "i'd be happy to help",
     "great question",
@@ -71,7 +78,7 @@ const VOICE_PROFILE = {
     "passionate about",
     "dedicated professional"
   ],
-  
+
   // Signature patterns (things you ACTUALLY say)
   signaturePhrases: [
     "i'm a wildcard",
@@ -85,7 +92,7 @@ const VOICE_PROFILE = {
     "ready to start",
     "available immediately"
   ],
-  
+
   // Technical opinions (from your actual responses)
   opinions: {
     cloud: "aws for most, gcp if data-heavy, avoid azure unless forced",
@@ -101,7 +108,10 @@ const VOICE_PROFILE = {
   }
 };
 
-// Build system prompt from voice profile
+// ============================================================================
+// SYSTEM PROMPT BUILDER
+// ============================================================================
+
 function buildSystemPrompt() {
   const vp = VOICE_PROFILE;
   return `You are a senior cloud/platform engineer who mentors on CodeMentor.
@@ -124,7 +134,7 @@ YOUR SIGNATURE MOVES:
 ${vp.signaturePhrases.map(p => `- "${p}"`).join('\n')}
 
 YOUR TECHNICAL OPINIONS:
-${Object.entries(vp.opinions).map(([k,v]) => `- ${k}: ${v}`).join('\n')}
+${Object.entries(vp.opinions).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
 
 RESPONSE PROCESS:
 1. Identify the core problem and constraints
@@ -153,50 +163,87 @@ You: "Hi Alexander, you're in luck - I'm a solutions engineer in AI and public c
 
 const SYSTEM_PROMPT = buildSystemPrompt();
 
-// Load Kilo API key from storage on startup
-let kiloApiKey = "";
-chrome.storage.sync.get({ kiloApiKey: "" }, (data) => {
-  kiloApiKey = data.kiloApiKey || "";
+// ============================================================================
+// STORAGE KEYS
+// ============================================================================
+
+const STORAGE_KEYS = {
+  KILO_API_KEY: 'kiloApiKey',
+  GROQ_API_KEY: 'groqApiKey',
+  RESPONSES: 'responses'
+};
+
+const MAX_RESPONSES = 50;
+const DEBUG = false; // Set to true for development logging
+
+function log(...args) {
+  if (DEBUG) console.log('[AI Auto Answer]', ...args);
+}
+
+function logError(...args) {
+  console.error('[AI Auto Answer]', ...args);
+}
+
+// ============================================================================
+// API KEY MANAGEMENT - Load synchronously to avoid race conditions
+// ============================================================================
+
+let kiloApiKey = MODEL_CONFIG.primary.apiKey;
+let groqApiKey = MODEL_CONFIG.fallback.apiKey;
+
+// Override with stored keys if available (async but non-blocking)
+chrome.storage.sync.get({
+  [STORAGE_KEYS.KILO_API_KEY]: '',
+  [STORAGE_KEYS.GROQ_API_KEY]: ''
+}, (data) => {
+  if (data[STORAGE_KEYS.KILO_API_KEY]) {
+    kiloApiKey = data[STORAGE_KEYS.KILO_API_KEY];
+    log('Loaded Kilo API key from storage');
+  }
+  if (data[STORAGE_KEYS.GROQ_API_KEY]) {
+    groqApiKey = data[STORAGE_KEYS.GROQ_API_KEY];
+    log('Loaded Groq API key from storage');
+  }
 });
 
-// Main message handler
+// ============================================================================
+// MESSAGE HANDLER
+// ============================================================================
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "getOptionsFromOpenAI") {
     const { txt } = message;
 
-    // Get few-shot examples from storage
     getFewShotExamples(txt).then((fewShotMessages) => {
-      // Try primary model (Kilo) first, fallback to Groq
       callModelWithFallback(txt, fewShotMessages)
         .then((result) => {
           sendResponse({ success: true, data: result });
         })
         .catch((error) => {
+          logError('Model call failed:', error);
           sendResponse({ success: false, error: error.message });
         });
     });
-    return true;
+    return true; // Async response
   }
 
   if (message.action === "saveResponse") {
     const { request, response } = message;
-    
-    // Extract tags from request
     const tags = extractTags(request);
-    
+
     const newEntry = {
-      request: request,
-      response: response,
+      request,
+      response,
       ts: Date.now(),
-      tags: tags
+      tags
     };
-    
-    chrome.storage.sync.get({ responses: [] }, (data) => {
-      const responses = data.responses;
+
+    // Use local storage for responses (larger quota)
+    chrome.storage.local.get({ [STORAGE_KEYS.RESPONSES]: [] }, (data) => {
+      const responses = data[STORAGE_KEYS.RESPONSES] || [];
       responses.unshift(newEntry);
-      // Keep only last 50
-      if (responses.length > 50) responses.pop();
-      chrome.storage.sync.set({ responses }, () => {
+      if (responses.length > MAX_RESPONSES) responses.pop();
+      chrome.storage.local.set({ [STORAGE_KEYS.RESPONSES]: responses }, () => {
         sendResponse({ success: true });
       });
     });
@@ -206,124 +253,195 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "saveKiloApiKey") {
     const { apiKey } = message;
     kiloApiKey = apiKey;
-    chrome.storage.sync.set({ kiloApiKey }, () => {
+    chrome.storage.sync.set({ [STORAGE_KEYS.KILO_API_KEY]: apiKey }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (message.action === "saveGroqApiKey") {
+    const { apiKey } = message;
+    groqApiKey = apiKey;
+    chrome.storage.sync.set({ [STORAGE_KEYS.GROQ_API_KEY]: apiKey }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (message.action === "getSavedResponses") {
+    chrome.storage.local.get({ [STORAGE_KEYS.RESPONSES]: [] }, (data) => {
+      sendResponse({ success: true, data: data[STORAGE_KEYS.RESPONSES] || [] });
+    });
+    return true;
+  }
+
+  if (message.action === "clearResponses") {
+    chrome.storage.local.set({ [STORAGE_KEYS.RESPONSES]: [] }, () => {
       sendResponse({ success: true });
     });
     return true;
   }
 });
 
-// Multi-model API call with fallback
+// ============================================================================
+// MODEL CALLS WITH FALLBACK & RETRY
+// ============================================================================
+
 async function callModelWithFallback(txt, fewShotMessages) {
   const models = [
     { ...MODEL_CONFIG.primary, apiKey: kiloApiKey },
-    MODEL_CONFIG.fallback
-  ].filter(m => m.enabled && m.apiKey);
+    { ...MODEL_CONFIG.fallback, apiKey: groqApiKey }
+  ].filter(m => m.enabled && m.apiKey && m.apiKey !== "REDACTED_KILO_KEY" && m.apiKey !== "REDACTED_GROQ_KEY");
+
+  if (models.length === 0) {
+    throw new Error("No models configured with valid API keys");
+  }
 
   let lastError;
-  
+
   for (const model of models) {
     try {
-      console.log(`Trying model: ${model.name}`);
-      const result = await callModel(model, txt, fewShotMessages);
-      console.log(`Success with ${model.name}`);
+      log(`Trying model: ${model.name}`);
+      const result = await callModelWithRetry(model, txt, fewShotMessages);
+      log(`Success with ${model.name}`);
       return result;
     } catch (error) {
-      console.warn(`Model ${model.name} failed:`, error.message);
+      logError(`Model ${model.name} failed:`, error.message);
       lastError = error;
       continue;
     }
   }
-  
+
   throw lastError || new Error("All models failed");
 }
 
-// Single model API call
+async function callModelWithRetry(model, txt, fewShotMessages, attempt = 1) {
+  const maxRetries = 3;
+  const baseDelay = 1000;
+
+  try {
+    return await callModel(model, txt, fewShotMessages);
+  } catch (error) {
+    const isRetryable = error.message.includes('429') ||
+                        error.message.includes('500') ||
+                        error.message.includes('502') ||
+                        error.message.includes('503') ||
+                        error.message.includes('504') ||
+                        error.message.includes('timeout');
+
+    if (isRetryable && attempt < maxRetries) {
+      const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 500;
+      log(`Retrying ${model.name} in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+      return callModelWithRetry(model, txt, fewShotMessages, attempt + 1);
+    }
+    throw error;
+  }
+}
+
+// ============================================================================
+// SINGLE MODEL CALL WITH TIMEOUT
+// ============================================================================
+
 async function callModel(model, txt, fewShotMessages) {
   const body = JSON.stringify({
     model: model.model,
     messages: [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT,
-      },
+      { role: "system", content: SYSTEM_PROMPT },
       ...fewShotMessages,
-      {
-        role: "user",
-        content: txt,
-      },
+      { role: "user", content: txt }
     ],
     temperature: 0.7,
     top_p: 0.9,
     max_tokens: 300,
     stop: null,
-    // Disable reasoning for Nemotron models to get direct responses
-    ...(model.name === "kilo-nemotron-3-ultra" && { reasoning: { enabled: false } }),
+    // Disable reasoning for models that support it
+    ...(model.supportsReasoning && { reasoning: { enabled: false } })
   });
 
   const headers = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${model.apiKey}`,
+    Authorization: `Bearer ${model.apiKey}`
   };
 
-  const response = await fetch(model.endpoint, {
-    method: "POST",
-    headers,
-    body,
-  });
+  // Fetch with timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), model.timeoutMs);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`${model.name} API error: ${response.status} - ${errorText}`);
+  try {
+    const response = await fetch(model.endpoint, {
+      method: "POST",
+      headers,
+      body,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`${model.name} API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    // Handle different response formats
+    let content;
+    if (data.choices && data.choices[0]) {
+      // OpenAI-compatible format (Groq, Kilo)
+      content = data.choices[0].message?.content || data.choices[0].text;
+    } else if (data.content) {
+      content = data.content;
+    } else {
+      throw new Error(`Unexpected response format from ${model.name}`);
+    }
+
+    if (!content) {
+      throw new Error(`Empty response from ${model.name}`);
+    }
+
+    log(`Response from ${model.name}:`, content);
+    return enforceVoiceRules(content);
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`${model.name} request timeout (${model.timeoutMs}ms)`);
+    }
+    throw error;
   }
-
-  const data = await response.json();
-  
-  // Handle different response formats
-  let content;
-  if (data.choices && data.choices[0]) {
-    // OpenAI-compatible format (Groq, Kilo)
-    content = data.choices[0].message?.content || data.choices[0].text;
-  } else if (data.content) {
-    // Alternative format
-    content = data.content;
-  } else {
-    throw new Error(`Unexpected response format from ${model.name}`);
-  }
-
-  if (!content) {
-    throw new Error(`Empty response from ${model.name}`);
-  }
-
-  console.log(`Response from ${model.name}:`, content);
-  return enforceVoiceRules(content);
 }
 
-// Post-process response to enforce voice rules
+// ============================================================================
+// VOICE RULES ENFORCEMENT (Post-processing)
+// ============================================================================
+
 function enforceVoiceRules(content) {
   let cleaned = content;
-  
-  // Strip banned phrases (case-insensitive)
+
+  // Strip banned phrases (case-insensitive, proper regex escaping)
   for (const phrase of VOICE_PROFILE.bannedPhrases) {
-    const regex = new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'gi');
     cleaned = cleaned.replace(regex, '');
   }
-  
+
   // Clean up double spaces, leading/trailing spaces after removals
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  
+
   // Ensure ends with question or call-to-action
   if (cleaned && !cleaned.match(/[?]|call|hop|connect|chat|talk|reach out$/i)) {
-    // Add a light hook if missing
     if (!cleaned.endsWith('?')) {
       cleaned += ' - want to hop on a quick call?';
     }
   }
-  
+
   return cleaned;
 }
 
-// Extract tags from request text
+// ============================================================================
+// TAG EXTRACTION (Shared utility)
+// ============================================================================
+
 function extractTags(text) {
   const keywords = [
     'aws', 'gcp', 'azure', 'cloud',
@@ -341,11 +459,14 @@ function extractTags(text) {
   return keywords.filter(k => lower.includes(k.toLowerCase()));
 }
 
-// Get few-shot examples from stored responses
+// ============================================================================
+// FEW-SHOT RETRIEVAL (Jaccard Similarity)
+// ============================================================================
+
 async function getFewShotExamples(currentRequest) {
   return new Promise((resolve) => {
-    chrome.storage.sync.get({ responses: [] }, (data) => {
-      const responses = data.responses || [];
+    chrome.storage.local.get({ [STORAGE_KEYS.RESPONSES]: [] }, (data) => {
+      const responses = data[STORAGE_KEYS.RESPONSES] || [];
       if (responses.length === 0) {
         resolve([]);
         return;
@@ -379,19 +500,18 @@ async function getFewShotExamples(currentRequest) {
 function jaccardSimilarity(textA, textB) {
   const tokensA = tokenize(textA);
   const tokensB = tokenize(textB);
-  
+
   if (tokensA.size === 0 || tokensB.size === 0) return 0;
-  
+
   const intersection = new Set([...tokensA].filter(x => tokensB.has(x)));
   const union = new Set([...tokensA, ...tokensB]);
-  
+
   return intersection.size / union.size;
 }
 
 // Tokenize text into meaningful words
 function tokenize(text) {
   const lower = text.toLowerCase();
-  // Extract alphanumeric tokens, filter stop words
   const stopWords = new Set([
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
     'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
@@ -404,7 +524,7 @@ function tokenize(text) {
     'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than',
     'too', 'very', 'just', 'now', 'then', 'here', 'there', 'when'
   ]);
-  
+
   const words = lower.match(/[a-z0-9]+/g) || [];
   return new Set(words.filter(w => w.length > 2 && !stopWords.has(w)));
 }

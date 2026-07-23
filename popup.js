@@ -1,27 +1,63 @@
-// Load saved keys on popup open
+/**
+ * AI Auto Answer - Popup UI
+ * API key management and connection testing
+ */
+
+// ============================================================================
+// DOM ELEMENTS
+// ============================================================================
+
+const elements = {
+  kiloApiKey: document.getElementById("kiloApiKey"),
+  groqApiKey: document.getElementById("groqApiKey"),
+  saveKiloKey: document.getElementById("saveKiloKey"),
+  saveGroqKey: document.getElementById("saveGroqKey"),
+  testConnection: document.getElementById("testConnection"),
+  status: document.getElementById("status")
+};
+
+// ============================================================================
+// STATUS HELPERS
+// ============================================================================
+
+function showStatus(message, isError = false) {
+  const status = elements.status;
+  status.textContent = message;
+  status.className = isError ? "error" : "success";
+  status.style.display = "block";
+  
+  clearTimeout(window.statusTimeout);
+  window.statusTimeout = setTimeout(() => {
+    status.style.display = "none";
+    status.className = "";
+  }, 4000);
+}
+
+// ============================================================================
+// LOAD SAVED KEYS
+// ============================================================================
+
 document.addEventListener("DOMContentLoaded", () => {
-  chrome.storage.sync.get({ kiloApiKey: "", groqApiKey: "" }, (data) => {
-    document.getElementById("kiloApiKey").value = data.kiloApiKey || "";
-    document.getElementById("groqApiKey").value = data.groqApiKey || "";
+  chrome.storage.sync.get({ 
+    kiloApiKey: "", 
+    groqApiKey: "" 
+  }, (data) => {
+    elements.kiloApiKey.value = data.kiloApiKey || "";
+    elements.groqApiKey.value = data.groqApiKey || "";
   });
 });
 
-function showStatus(message, isError = false) {
-  const status = document.getElementById("status");
-  status.textContent = message;
-  status.className = isError ? "error" : "success";
-  setTimeout(() => {
-    status.className = "";
-  }, 3000);
-}
+// ============================================================================
+// SAVE HANDLERS
+// ============================================================================
 
-// Save Kilo API key
-document.getElementById("saveKiloKey").addEventListener("click", () => {
-  const apiKey = document.getElementById("kiloApiKey").value.trim();
+elements.saveKiloKey.addEventListener("click", () => {
+  const apiKey = elements.kiloApiKey.value.trim();
   if (!apiKey) {
     showStatus("Please enter a Kilo API key", true);
     return;
   }
+  
   chrome.runtime.sendMessage({ action: "saveKiloApiKey", apiKey }, (res) => {
     if (res?.success) {
       showStatus("Kilo API key saved!");
@@ -32,26 +68,30 @@ document.getElementById("saveKiloKey").addEventListener("click", () => {
   });
 });
 
-// Save Groq API key
-document.getElementById("saveGroqKey").addEventListener("click", () => {
-  const apiKey = document.getElementById("groqApiKey").value.trim();
+elements.saveGroqKey.addEventListener("click", () => {
+  const apiKey = elements.groqApiKey.value.trim();
   if (!apiKey) {
     showStatus("Please enter a Groq API key", true);
     return;
   }
+  
   chrome.storage.sync.set({ groqApiKey: apiKey }, () => {
     showStatus("Groq API key saved!");
   });
 });
 
-// Test connection
-document.getElementById("testConnection").addEventListener("click", async () => {
+// ============================================================================
+// TEST CONNECTION
+// ============================================================================
+
+elements.testConnection.addEventListener("click", async () => {
   showStatus("Testing...");
   
-  // Test Kilo if key exists
-  const kiloKey = document.getElementById("kiloApiKey").value.trim();
-  const groqKey = document.getElementById("groqApiKey").value.trim();
+  const kiloKey = elements.kiloApiKey.value.trim();
+  const groqKey = elements.groqApiKey.value.trim();
+  let anySuccess = false;
   
+  // Test Kilo if key exists
   if (kiloKey) {
     try {
       const res = await fetch("https://api.kilo.ai/api/gateway/chat/completions", {
@@ -63,12 +103,14 @@ document.getElementById("testConnection").addEventListener("click", async () => 
         body: JSON.stringify({
           model: "nvidia/nemotron-3-ultra-550b-a55b:free",
           messages: [{ role: "user", content: "test" }],
-          max_tokens: 10
+          max_tokens: 10,
+          reasoning: { enabled: false }
         })
       });
+      
       if (res.ok) {
         showStatus("Kilo: Connected ✓");
-        return;
+        anySuccess = true;
       } else {
         showStatus("Kilo: Failed (" + res.status + ")", true);
       }
@@ -77,6 +119,7 @@ document.getElementById("testConnection").addEventListener("click", async () => 
     }
   }
   
+  // Test Groq if key exists
   if (groqKey) {
     try {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -91,13 +134,15 @@ document.getElementById("testConnection").addEventListener("click", async () => 
           max_tokens: 10
         })
       });
+      
       if (res.ok) {
-        showStatus("Groq: Connected ✓");
+        showStatus(anySuccess ? "Kilo & Groq: Connected ✓" : "Groq: Connected ✓");
+        anySuccess = true;
       } else {
-        showStatus("Groq: Failed (" + res.status + ")", true);
+        showStatus(anySuccess ? "Groq: Failed (" + res.status + ")" : "Groq: Failed (" + res.status + ")", true);
       }
     } catch (e) {
-      showStatus("Groq: Error - " + e.message, true);
+      showStatus(anySuccess ? "Groq: Error - " + e.message : "Groq: Error - " + e.message, true);
     }
   }
   

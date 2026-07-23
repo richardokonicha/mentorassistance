@@ -1,0 +1,11 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Test files
+test_*.json
+
+# Build artifacts
+*.log
+.DS_Store

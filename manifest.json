@@ -1,7 +1,8 @@
 {
     "manifest_version": 3,
     "name": "AI Auto Answer",
-    "version": "1.0",
+    "version": "1.0.0",
+    "description": "Generates personalized mentor responses for CodeMentor using AI with your voice profile",
     "permissions": ["activeTab", "scripting", "storage"],
     "host_permissions": [
       "https://www.codementor.io/",
@@ -10,12 +11,14 @@
       "https://generativelanguage.googleapis.com/"
     ],
     "background": {
-      "service_worker": "background.js"
+      "service_worker": "background.js",
+      "type": "module"
     },
     "content_scripts": [
       {
         "matches": ["https://www.codementor.io/m/dashboard/open-requests/*"],
-        "js": ["content.js"]
+        "js": ["content.js"],
+        "run_at": "document_idle"
       }
     ],
     "action": {
@@ -25,6 +28,12 @@
         "48": "image2.jpeg",
         "128": "image2.jpeg"
       }
-    }
+    },
+    "web_accessible_resources": [
+      {
+        "resources": ["*.css", "*.js"],
+        "matches": ["https://www.codementor.io/*"]
+      }
+    ]
   }
   
