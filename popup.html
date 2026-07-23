@@ -6,20 +6,72 @@
     body {
       font-family: Arial, sans-serif;
       padding: 10px;
-      width: 250px;
+      width: 300px;
     }
-    input, button {
+    .section {
+      margin-bottom: 15px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #eee;
+    }
+    .section:last-child {
+      border-bottom: none;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      font-size: 12px;
+    }
+    input {
       width: 100%;
-      margin-bottom: 10px;
-      padding: 5px;
+      margin-bottom: 8px;
+      padding: 8px;
+      box-sizing: border-box;
+      border: 1px solid #ddd;
+      border-radius: 4px;
     }
+    button {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 8px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .primary { background: #027E6F; color: white; }
+    .secondary { background: #f0f0f0; color: #333; }
+    .test { background: #e8f5e9; color: #2e7d32; }
+    #status {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: none;
+    }
+    #status.success { background: #e8f5e9; color: #2e7d32; display: block; }
+    #status.error { background: #fdeaea; color: #c62828; display: block; }
   </style>
 </head>
 <body>
   <h3>AI Auto Answer</h3>
-  <label for="apiKey">API Key:</label>
-  <input type="text" id="apiKey" placeholder="Enter your API key">
-  <button id="saveButton">Save</button>
+  
+  <div class="section">
+    <label>Kilo AI (Primary)</label>
+    <input type="password" id="kiloApiKey" placeholder="Enter Kilo API key">
+    <button id="saveKiloKey" class="primary">Save Kilo Key</button>
+  </div>
+
+  <div class="section">
+    <label>Groq (Fallback)</label>
+    <input type="password" id="groqApiKey" placeholder="Enter Groq API key">
+    <button id="saveGroqKey" class="secondary">Save Groq Key</button>
+  </div>
+
+  <div class="section">
+    <button id="testConnection" class="test">Test Connection</button>
+  </div>
+
   <p id="status"></p>
   <script src="popup.js"></script>
 </body>

@@ -3,7 +3,12 @@
     "name": "AI Auto Answer",
     "version": "1.0",
     "permissions": ["activeTab", "scripting", "storage"],
-    "host_permissions": ["https://www.codementor.io/"],
+    "host_permissions": [
+      "https://www.codementor.io/",
+      "https://api.kilo.ai/",
+      "https://api.groq.com/",
+      "https://generativelanguage.googleapis.com/"
+    ],
     "background": {
       "service_worker": "background.js"
     },
