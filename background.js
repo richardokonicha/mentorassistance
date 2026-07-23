@@ -12,7 +12,7 @@ const MODEL_CONFIG = {
     name: "kilo-nemotron-3-ultra",
     endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
     model: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    apiKey: "REDACTED_KILO_KEY", // Injected at build
+    apiKey: "REDACTED_KILO_KEY",
     enabled: true,
     supportsReasoning: true,
     timeoutMs: 30000
@@ -21,7 +21,7 @@ const MODEL_CONFIG = {
     name: "groq-llama-3.3-70b",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     model: "llama-3.3-70b-versatile",
-    apiKey: "REDACTED_GROQ_KEY", // Injected at build
+    apiKey: "REDACTED_GROQ_KEY",
     enabled: true,
     supportsReasoning: false,
     timeoutMs: 30000
@@ -29,7 +29,7 @@ const MODEL_CONFIG = {
 };
 
 const EMBEDDING_CONFIG = {
-  apiKey: "REDACTED_GEMINI_KEY", // Injected at build
+  apiKey: "REDACTED_GEMINI_KEY",
   endpoint: "https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent",
   enabled: true
 };
