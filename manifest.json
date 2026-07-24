@@ -1,39 +1,33 @@
 {
-    "manifest_version": 3,
-    "name": "AI Auto Answer",
-    "version": "1.0.0",
-    "description": "Generates personalized mentor responses for CodeMentor using AI with your voice profile",
-    "permissions": ["activeTab", "scripting", "storage"],
-    "host_permissions": [
-      "https://www.codementor.io/",
-      "https://api.kilo.ai/",
-      "https://api.groq.com/",
-      "https://generativelanguage.googleapis.com/"
-    ],
-    "background": {
-      "service_worker": "background.js",
-      "type": "module"
+  "manifest_version": 3,
+  "name": "AI Auto Answer",
+  "version": "1.1.0",
+  "description": "Generates personalized mentor responses for CodeMentor and Upwork proposals using AI with your voice profile",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://api.kilo.ai/",
+    "https://api.groq.com/",
+    "https://generativelanguage.googleapis.com/"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.codementor.io/m/dashboard/open-requests/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
     },
-    "content_scripts": [
-      {
-        "matches": ["https://www.codementor.io/m/dashboard/open-requests/*"],
-        "js": ["content.js"],
-        "run_at": "document_idle"
-      }
-    ],
-    "action": {
-      "default_popup": "popup.html",
-      "default_icon": {
-        "16": "image.png",
-        "48": "image2.jpeg",
-        "128": "image2.jpeg"
-      }
-    },
-    "web_accessible_resources": [
-      {
-        "resources": ["*.css", "*.js"],
-        "matches": ["https://www.codementor.io/*"]
-      }
-    ]
+    {
+      "matches": ["https://www.upwork.com/nx/proposals/job/*/apply/"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://api.kilo.ai https://api.groq.com https://generativelanguage.googleapis.com;"
   }
-  
+}
