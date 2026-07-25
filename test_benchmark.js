@@ -6,6 +6,29 @@
 
 const fetch = global.fetch;
 
+function loadEnvFile(path) {
+  try {
+    const fs = require('fs');
+    const content = fs.readFileSync(path, 'utf8');
+    const lines = content.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) {
+        const key = trimmed.slice(0, eq).trim();
+        const value = trimmed.slice(eq + 1).trim();
+        if (key && !(key in process.env)) {
+          process.env[key] = value;
+        }
+      }
+    }
+  } catch {}
+}
+
+loadEnvFile('.env.local');
+loadEnvFile('.env');
+
 // ============================================================================
 // TEST CASES - Real CodeMentor requests
 // ============================================================================
@@ -364,7 +387,7 @@ const MODELS = [
     name: "kilo-nemotron-3-ultra",
     endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
     model: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    apiKey: "__KILO_API_KEY__",
+    apiKey: process.env.KILO_API_KEY || "",
     enabled: true,
     supportsReasoning: true,
     timeoutMs: 30000
@@ -373,7 +396,7 @@ const MODELS = [
     name: "groq-llama-3.3-70b",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     model: "llama-3.3-70b-versatile",
-    apiKey: "__GROQ_API_KEY__",
+    apiKey: process.env.GROQ_API_KEY || "",
     enabled: true,
     supportsReasoning: false,
     timeoutMs: 30000
