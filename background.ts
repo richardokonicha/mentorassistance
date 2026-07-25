@@ -1,11 +1,42 @@
+import { Platform, ModelConfig, EmbeddingConfig, ChatMessage } from './src/types';
 /**
  * AI Auto Answer - Background Service Worker
  * Manifest V3 Chrome Extension
  */
 
 // ============================================================================
-// MODEL CONFIGURATION - Keys injected at build time from .env.local
+// MESSAGE TYPES
 // ============================================================================
+
+type GetOptionsFromOpenAIMessage = {
+  action: 'getOptionsFromOpenAI';
+  txt: string;
+  platform?: Platform;
+};
+
+type RefineProposalMessage = {
+  action: 'refineProposal';
+  originalRequest: string;
+  currentProposal: string;
+  refinementPrompt: string;
+  conversationHistory?: unknown;
+  platform?: Platform;
+};
+
+type SaveResponseMessage = {
+  action: 'saveResponse';
+  request: string;
+  response: string;
+  platform?: Platform;
+};
+
+type GetSavedResponsesMessage = {
+  action: 'getSavedResponses';
+};
+
+type ClearResponsesMessage = {
+  action: 'clearResponses';
+};
 
 const MODEL_CONFIG = {
   primary: {
@@ -154,7 +185,21 @@ const VOICE_PROFILES = {
       'dedicated professional',
       'to whom it may concern',
       'dear sir/madam',
-      'i am writing to express'
+      'i am writing to express',
+      'budget',
+      'rate',
+      'hourly',
+      'fixed price',
+      'cost',
+      'price',
+      'fee',
+      'payment terms',
+      'start within',
+      'available for a call',
+      'timeline',
+      'duration',
+      'deadline',
+      'delivery date'
     ],
     signaturePhrases: [
       'relevant experience',
@@ -197,6 +242,15 @@ function buildSystemPrompt(platform = PLATFORM.CODEMENTOR) {
   return builder(profile);
 }
 
+const RESUME_CONTEXT = `Your relevant experience:
+- Lead Systems Architect at Fugoku Cloud: sovereign AI cloud on bare-metal OpenStack, GPU/TPU fabric, LLM gateway with LiteLLM/Helicone, SkyPilot orchestration, reduced inference latency from 300ms+ to <50ms, cut tenant costs 65%.
+- Senior Infrastructure Engineer at Inference Cloud: enterprise AI platform, multi-tenant isolation, high-concurrency request pipelines, stakeholder liaison.
+- Senior Engineer at Swell: high-scale enterprise SaaS, Kubernetes, Stripe payment architecture, checkout pipeline resilience, Redis, Vue.js/TypeScript.
+- Independent Consultant: enterprise advisory on sovereign cloud, GPU/TPU orchestration, AI adoption/agentic systems, Turbo Quant quantization, client sales calls.
+- AI Integrations Expert at MindsDB: LLM integrations via SQL, model serving frameworks, MCP support for agents, automated fine-tuning pipelines.
+- Technical Lead at eHealth4Everyone: led 6-engineer team, government health data systems across 12 Nigerian states, Gates Foundation platform.
+- Mentored 100+ developers/engineering managers on Codementor on distributed systems and cloud architecture.`;
+
 function buildCodeMentorPrompt(vp) {
   return `You are a senior cloud/platform engineer who mentors on CodeMentor.
 
@@ -207,17 +261,27 @@ VOICE & TONE:
 - Technical specificity: ${vp.technicalSpecificity}
 - Opinionated: ${vp.opinionationStrength}
 - Minimal hedging: ${vp.hedgingFrequency}
-- ~${vp.avgSentences} sentences, max ${vp.maxParagraphs} paragraphs
-- Lists: ${vp.useLists ? 'when helpful' : 'avoid'}
+- max ${vp.maxParagraphs} paragraphs
 - End with a specific hook for a call
 
-NEVER SAY:
+RESUME CONTEXT - DRAW FROM THIS WHEN RELEVANT:
+- Lead Systems Architect at Fugoku Cloud: sovereign AI cloud on bare-metal OpenStack, GPU/TPU fabric, LLM gateway with LiteLLM/Helicone, SkyPilot orchestration, reduced inference latency from 300ms+ to <50ms, cut tenant costs 65%.
+- Senior Infrastructure Engineer at Inference Cloud: enterprise AI platform, multi-tenant isolation, high-concurrency request pipelines, stakeholder liaison.
+- Senior Engineer at Swell: high-scale enterprise SaaS, Kubernetes, Stripe payment architecture, checkout pipeline resilience, Redis, Vue.js/TypeScript.
+- Independent Consultant: enterprise advisory on sovereign cloud, GPU/TPU orchestration, AI adoption/agentic systems, Turbo Quant quantization, client sales calls.
+- AI Integrations Expert at MindsDB: LLM integrations via SQL, model serving frameworks, MCP support for agents, automated fine-tuning pipelines.
+- Technical Lead at eHealth4Everyone: led 6-engineer team, government health data systems across 12 Nigerian states, Gates Foundation platform.
+- Mentored 100+ developers/engineering managers on Codementor on distributed systems and cloud architecture.
+
+When a question relates to AI infrastructure, cloud architecture, Kubernetes, LLM/gateway work, multi-tenant systems, or high-scale SaaS, reference specific outcomes from this background. Do NOT mention unrelated experience like mechanical engineering, GDG community work, or hackathons unless directly relevant.
+
+NEVER USE AI-ISH PHRASES:
 ${vp.bannedPhrases.map(p => `- "${p}"`).join('\n')}
 
-YOUR SIGNATURE MOVES:
-${vp.signaturePhrases.map(p => `- "${p}"`).join('\n')}
+YOUR SIGNATURE QUALITIES (use naturally, don't force):
+${vp.signaturePhrases.map(p => `- ${p}`).join('\n')}
 
-YOUR TECHNICAL OPINIONS:
+YOUR TECHNICAL POSITIONS:
 ${Object.entries(vp.opinions).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
 
 RESPONSE PROCESS:
@@ -256,12 +320,29 @@ VOICE & TONE:
 - Technical specificity: ${vp.technicalSpecificity}
 - Opinionated: ${vp.opinionationStrength}
 - Minimal hedging: ${vp.hedgingFrequency}
-- ~${vp.avgSentences} sentences per paragraph, max ${vp.maxParagraphs} paragraphs
-- Lists: ${vp.useLists ? 'use for key points' : 'avoid'}
 - End with a clear next step
+
+RESUME CONTEXT - DRAW FROM THIS WHEN RELEVANT:
+${RESUME_CONTEXT}
+
+When a question relates to AI infrastructure, cloud architecture, Kubernetes, LLM/gateway work, multi-tenant systems, or high-scale SaaS, reference specific outcomes from this background. Do NOT mention unrelated experience like mechanical engineering, GDG community work, or hackathons unless directly relevant.
+
+COPYEDITOR RULES - FOLLOW THESE EXACTLY:
+- ONE IDEA PER PARAGRAPH. Start a new paragraph whenever the focus shifts.
+- PARAGRAPH LENGTH: 2 to 4 sentences only. Never write dense walls of text.
+- VERTICAL SPACING: Insert exactly one full blank line between paragraphs.
+- SENTENCE STRUCTURE: Use short, varied sentences. Avoid long, winding sentences with too many commas.
+- NO MARKDOWN CRUTCHES: No bullets, numbered lists, or excessive bolding. Use clean paragraphs and white space only.
 
 NEVER USE AI-ISH PHRASES:
 ${vp.bannedPhrases.map(p => `- "${p}"`).join('\n')}
+
+NEVER MENTION:
+- Project duration or timeline
+- Hourly rate, fixed price, or cost
+- Deliverable estimates or completion dates
+- "I can start within X hours/days"
+- Budget or payment terms
 
 YOUR SIGNATURE QUALITIES:
 ${vp.signaturePhrases.map(p => `- ${p}`).join('\n')}
@@ -273,18 +354,31 @@ PROPOSAL STRUCTURE:
 1. Open with a connection to the specific project
 2. Show you read their requirements (reference 2-3 specific details)
 3. State why you are a fit (relevant tools, recent similar work, specific outcomes)
-4. Propose one concrete next step (call, short task, etc.)
+4. Propose one concrete next step: usually a short call or intro conversation
 5. Keep it under ~2200 characters total
 
 --- FEW-SHOT EXAMPLES ---
 Example 1:
-User: "Validate AI API integration architecture for Bizware AI sales coaching platform. Need API Development, AI Model Integration, AI-Generated Code. Expert level, $30-$70/hr, less than 30 hrs/week, less than a month."
-You: "Hi, this project aligns well with my recent work building AI API integrations across cloud-native stacks. I've shipped similar architecture-validation sprints using LiteLLM/Portkey routing, OpenAI/Anthropic API orchestration, and Pydantic contract testing — exactly the skills you listed under API Development and AI Model Integration. I also bring strong opinions on clean architecture: start with a thin integration layer, validate contracts before full MVP build-out, and instrument observability from day one. My last engagement reduced integration latency by 40% by catching schema mismatches early. I'm comfortable with the $30-$70/hr range and can start within 48 hours. Happy to hop on a 20-minute call this week to map your core workflow and an initial integration test.";
+User: "Validate AI API integration architecture for Bizware AI sales coaching platform. Need API Development, AI Model Integration, AI-Generated Code. Expert level, part-time engagement, short timeline."
+You: "Hi, this project aligns well with my recent work building AI API integrations across cloud-native stacks.
+
+I've shipped similar architecture-validation sprints using LiteLLM/Portkey routing, OpenAI/Anthropic API orchestration, and Pydantic contract testing. That matches your API Development, AI Model Integration, and AI-Generated Code requirements closely.
+
+I also bring strong opinions on clean architecture. Start with a thin integration layer. Validate contracts before full MVP build-out. Instrument observability from day one. My last engagement reduced integration latency by 40% by catching schema mismatches early.
+
+Happy to hop on a 20-minute call this week to map your core workflow and an initial integration test.";
 
 Example 2:
-User: "Looking for Full Stack Development with API Development and AI Model Integration. Expert level. Hourly $30-$70. Less than 30 hrs/week."
-You: "I see you need both full-stack delivery and AI integration depth — that is exactly the combination I work in daily. Recent relevant experience: built an AI gateway router handling LiteLLM, Portkey, and self-hosted models with OpenAPI contract tests, plus a Next.js admin surface for prompt orchestration. My stance on architecture: validate the integration contract before building the full stack, keep routing logic out of the app layer, and use environment-specific config from day one. I also have a background in mechanical engineering which helps when diagnosing system-level bottlenecks across hardware/software boundaries. For this role I would propose a 1-week paid discovery: schema audit, 2 proof-of-concept endpoints, and a shared runbook. Available immediately — when works for a quick call?";
-`;
+User: "Looking for Full Stack Development with API Development and AI Model Integration. Expert level. Part-time engagement."
+You: "I see you need both full-stack delivery and AI integration depth. That is exactly what I do daily.
+
+Recent relevant experience: I built an AI gateway router handling LiteLLM, Portkey, and self-hosted models with OpenAPI contract tests. I also built a Next.js admin surface for prompt orchestration.
+
+My stance on architecture is simple. Validate the integration contract before building the full stack. Keep routing logic out of the app layer. Use environment-specific config from day one.
+
+I also have a background in mechanical engineering. It helps when diagnosing system-level bottlenecks across hardware/software boundaries.
+
+For a fit like this, my first move is a short discovery. Schema audit, two proof-of-concept endpoints, shared runbook. When works for a quick call?"`;
 }
 
 // ============================================================================
@@ -299,7 +393,7 @@ const storage = {
   },
   set(key, value) {
     return new Promise((resolve) => {
-      chrome.storage.local.set({ [key]: value }, resolve);
+      chrome.storage.local.set({ [key]: value }, () => resolve(undefined as void));
     });
   }
 };
@@ -309,27 +403,32 @@ const storage = {
 // ============================================================================
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const handlers = {
-    getOptionsFromOpenAI: handleGenerateRequest,
-    refineProposal: handleRefineRequest,
-    saveResponse: handleSaveResponse,
-    getSavedResponses: handleGetSavedResponses,
-    clearResponses: handleClearResponses
-  };
-
-  const handler = handlers[message.action];
-  if (handler) {
-    handler(message, sendResponse);
-    return true;
+  switch (message.action) {
+    case 'getOptionsFromOpenAI':
+      handleGenerateRequest(message as GetOptionsFromOpenAIMessage, sendResponse);
+      return true;
+    case 'refineProposal':
+      handleRefineRequest(message as RefineProposalMessage, sendResponse);
+      return true;
+    case 'saveResponse':
+      handleSaveResponse(message as SaveResponseMessage, sendResponse);
+      return true;
+    case 'getSavedResponses':
+      handleGetSavedResponses(message as GetSavedResponsesMessage, sendResponse);
+      return true;
+    case 'clearResponses':
+      handleClearResponses(message as ClearResponsesMessage, sendResponse);
+      return true;
+    default:
+      console.warn('[AI Auto Answer] Unhandled message action:', message.action);
+      sendResponse({ success: false, error: `Unknown action: ${message.action}` });
+      return true;
   }
-
-  console.warn('[AI Auto Answer] Unhandled message action:', message.action);
-  sendResponse({ success: false, error: `Unknown action: ${message.action}` });
 });
 
-function handleGenerateRequest(message, sendResponse) {
+function handleGenerateRequest(message: GetOptionsFromOpenAIMessage, sendResponse) {
   const { txt, platform } = message;
-  const activePlatform = platform || PLATFORM.CODEMENTOR;
+  const activePlatform = (platform || PLATFORM.CODEMENTOR) as Platform;
 
   if (typeof txt !== 'string' || txt.trim().length === 0) {
     sendResponse({ success: false, error: 'Invalid request text' });
@@ -337,18 +436,18 @@ function handleGenerateRequest(message, sendResponse) {
   }
 
   getFewShotExamples(txt, activePlatform)
-    .then((fewShotMessages) => callModelWithFallback(txt, fewShotMessages, activePlatform))
+    .then((fewShotMessages) => callModelWithFallback(txt, fewShotMessages as ChatMessage[], activePlatform))
     .then((result) => sendResponse({ success: true, data: result }))
-    .catch((error) => {
+    .catch((error: unknown) => {
       console.error('[AI Auto Answer] Model call failed:', error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
     });
   return true;
 }
 
-function handleRefineRequest(message, sendResponse) {
+function handleRefineRequest(message: RefineProposalMessage, sendResponse) {
   const { originalRequest, currentProposal, refinementPrompt, conversationHistory, platform } = message;
-  const activePlatform = platform || PLATFORM.CODEMENTOR;
+  const activePlatform = (platform || PLATFORM.CODEMENTOR) as Platform;
 
   if (!originalRequest || !currentProposal || !refinementPrompt) {
     sendResponse({ success: false, error: 'Invalid refinement request' });
@@ -356,24 +455,24 @@ function handleRefineRequest(message, sendResponse) {
   }
 
   const history = Array.isArray(conversationHistory) ? conversationHistory : [];
-  const userMessages = [
+  const userMessages: ChatMessage[] = [
     { role: 'user', content: originalRequest },
     { role: 'assistant', content: currentProposal },
     ...history,
     { role: 'user', content: `Refine the proposal above: ${refinementPrompt}` }
-  ];
+  ] as ChatMessage[];
 
   getFewShotExamples(originalRequest, activePlatform)
     .then((fewShotMessages) => callModelWithFallback(originalRequest, fewShotMessages, activePlatform, userMessages))
     .then((result) => sendResponse({ success: true, data: result }))
     .catch((error) => {
-      console.error('[AI Auto Answer] Refinement failed:', error);
-      sendResponse({ success: false, error: error.message });
+      console.error('[AI Auto Answer] Replan failed:', error);
+      sendResponse({ success: false, error: error instanceof Error ? error.message : String(error) });
     });
   return true;
 }
 
-function handleSaveResponse(message, sendResponse) {
+function handleSaveResponse(message: SaveResponseMessage, sendResponse) {
   const { request, response, platform } = message;
 
   if (typeof request !== 'string' || typeof response !== 'string') {
@@ -381,13 +480,13 @@ function handleSaveResponse(message, sendResponse) {
     return false;
   }
 
-  const newEntry = {
-    request,
-    response,
-    ts: Date.now(),
-    tags: extractTags(request),
-    platform: platform || PLATFORM.CODEMENTOR
-  };
+const newEntry = {
+      request,
+      response,
+      ts: Date.now(),
+      tags: extractTags(request),
+      platform: (platform || PLATFORM.CODEMENTOR) as Platform
+    };
 
   chrome.storage.local.get({ [STORAGE_KEYS.RESPONSES]: [] }, (data) => {
     if (chrome.runtime.lastError) {
@@ -395,7 +494,7 @@ function handleSaveResponse(message, sendResponse) {
       sendResponse({ success: false, error: chrome.runtime.lastError.message });
       return;
     }
-    const responses = data[STORAGE_KEYS.RESPONSES] || [];
+    const responses = data[STORAGE_KEYS.RESPONSES] ?? [];
     responses.unshift(newEntry);
     if (responses.length > MAX_RESPONSES) responses.pop();
     chrome.storage.local.set({ [STORAGE_KEYS.RESPONSES]: responses }, () => {
@@ -409,18 +508,18 @@ function handleSaveResponse(message, sendResponse) {
   });
 }
 
-function handleGetSavedResponses(_message, sendResponse) {
+function handleGetSavedResponses(_message: GetSavedResponsesMessage, sendResponse) {
   chrome.storage.local.get({ [STORAGE_KEYS.RESPONSES]: [] }, (data) => {
     if (chrome.runtime.lastError) {
       console.error('[AI Auto Answer] Storage read failed:', chrome.runtime.lastError.message);
       sendResponse({ success: false, error: chrome.runtime.lastError.message });
       return;
     }
-    sendResponse({ success: true, data: data[STORAGE_KEYS.RESPONSES] || [] });
+    sendResponse({ success: true, data: data[STORAGE_KEYS.RESPONSES] ?? [] });
   });
 }
 
-function handleClearResponses(_message, sendResponse) {
+function handleClearResponses(_message: ClearResponsesMessage, sendResponse) {
   chrome.storage.local.set({ [STORAGE_KEYS.RESPONSES]: [] }, () => {
     if (chrome.runtime.lastError) {
       console.error('[AI Auto Answer] Storage write failed:', chrome.runtime.lastError.message);
@@ -439,29 +538,29 @@ function getActiveModels() {
   return [MODEL_CONFIG.primary, MODEL_CONFIG.fallback].filter((m) => m.enabled && m.apiKey && m.apiKey.length > 20);
 }
 
-async function callModelWithFallback(txt, fewShotMessages, platform, userMessages = null) {
+async function callModelWithFallback(txt: string, fewShotMessages: ChatMessage[] | null, platform: Platform, userMessages: ChatMessage[] | null = null): Promise<string> {
   const models = getActiveModels();
   if (models.length === 0) {
     throw new Error('No models configured with valid API keys');
   }
 
-  let lastError;
+  let lastError: unknown;
   for (const model of models) {
     try {
       log(`Trying model: ${model.name}`);
-      const result = await callModelWithRetry(model, txt, fewShotMessages, platform, userMessages);
+      const result = await callModelWithRetry(model, txt, fewShotMessages, platform, userMessages as ChatMessage[] | undefined);
       log(`Success with ${model.name}`);
       return result;
     } catch (error) {
-      console.error(`[AI Auto Answer] Model ${model.name} failed:`, error.message);
+      console.error(`[AI Auto Answer] Model ${model.name} failed:`, error instanceof Error ? error.message : String(error));
       lastError = error;
     }
   }
 
-  throw lastError || new Error('All models failed');
+  throw lastError instanceof Error ? lastError : new Error('All models failed');
 }
 
-async function callModelWithRetry(model, txt, fewShotMessages, platform, userMessages = null, attempt = 1) {
+async function callModelWithRetry(model: ModelConfig, txt: string, fewShotMessages: ChatMessage[] | null, platform: Platform, userMessages: ChatMessage[] | null = null, attempt = 1): Promise<string> {
   const maxRetries = 3;
   const baseDelay = 1000;
 
@@ -480,7 +579,7 @@ async function callModelWithRetry(model, txt, fewShotMessages, platform, userMes
 }
 
 async function callModel(model, txt, fewShotMessages, platform, userMessages = null) {
-  const activePlatform = platform || PLATFORM.CODEMENTOR;
+  const activePlatform = (platform || PLATFORM.CODEMENTOR) as Platform;
   const maxTokens = activePlatform === PLATFORM.UPWORK ? 600 : 80;
 
   const body = JSON.stringify({
@@ -529,16 +628,17 @@ async function callModel(model, txt, fewShotMessages, platform, userMessages = n
     return enforceVoiceRules(content, platform);
   } catch (error) {
     clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`${model.name} request timeout (${model.timeoutMs}ms)`);
     }
     throw error;
   }
 }
 
-function isRetryableError(error) {
-  const statusMatch = error.message.match(/\b(429|500|502|503|504)\b/);
-  return statusMatch || error.message.includes('timeout');
+function isRetryableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const statusMatch = message.match(/\b(429|500|502|503|504)\b/);
+  return statusMatch !== null || message.includes('timeout');
 }
 
 function sleep(ms) {
@@ -564,36 +664,105 @@ function enforceVoiceRules(content, platform = PLATFORM.CODEMENTOR) {
     cleaned = cleaned.replace(regex, '');
   }
 
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-
   if (platform === PLATFORM.UPWORK) {
-    cleaned = appendUpworkCta(cleaned, profile);
+    cleaned = stripCostAndDuration(cleaned);
+    cleaned = formatUpworkProposal(cleaned as string);
+    cleaned = appendUpworkCta(cleaned);
     cleaned = truncateToLimit(cleaned, profile.maxLength);
   } else {
-    cleaned = appendCodeMentorCta(cleaned, profile);
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    cleaned = appendCodeMentorCta(cleaned);
     cleaned = truncateCodeMentor(cleaned, profile.maxLength);
   }
 
   return cleaned;
 }
 
-function appendUpworkCta(text) {
-  if (text && !text.match(/[?]|let's connect|happy to discuss|call|schedule|next step$/i) && !text.endsWith('?')) {
-    return text + ' Happy to discuss further or hop on a quick call.';
+function formatUpworkProposal(text) {
+  if (!text) return text;
+
+  let formatted = text;
+
+  formatted = formatted.replace(/[ \t]+\n/g, '\n');
+  formatted = formatted.replace(/\n{3,}/g, '\n\n');
+
+  formatted = formatted.split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line, idx, arr) => line.length > 0 || (idx > 0 && arr[idx - 1].length > 0))
+    .join('\n');
+
+  const paragraphs = formatted.split('\n\n');
+
+  const refined = paragraphs.flatMap((para) => {
+    const sentences = para.match(/[^.!?]+[.!?]+/g) || [para];
+    if (sentences.length === 0) return [para.trim()];
+    if (sentences.length <= 4) return [para.trim()];
+
+    const groups: string[] = [];
+    for (let i = 0; i < sentences.length; i += 4) {
+      groups.push(sentences.slice(i, i + 4).join(' ').trim());
+    }
+    return groups;
+  });
+
+  const merged: string[] = [];
+  for (const para of refined) {
+    const last = merged[merged.length - 1];
+    const sentenceCount = (para.match(/[.!?]+/g) || []).length || 1;
+    if (last && sentenceCount < 2) {
+      merged[merged.length - 1] = last + ' ' + para;
+    } else {
+      merged.push(para);
+    }
   }
-  return text;
+
+  formatted = merged.join('\n\n');
+  formatted = formatted.replace(/\n{3,}/g, '\n\n');
+  formatted = formatted.trim();
+
+  return formatted;
+}
+
+const COST_DURATION_PATTERNS = [
+  /\$\d[\d,]*\s*(\/hr|\/hour|\/day|\/week|\/month)?/gi,
+  /\b\d+\s*(hours|days|weeks|months)\b/gi,
+  /\b(start within|available for|budget|rate|price|cost|fee|payment)\b/gi,
+  /\b(less than|under|over)\s+\d+\s*(hours|days|weeks|months|hrs)\b/gi
+];
+
+function stripCostAndDuration(text) {
+  const safeText = typeof text === 'string' ? text : String(text || '');
+  if (!safeText) return safeText;
+  let cleaned = safeText;
+  for (const pattern of COST_DURATION_PATTERNS) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+  cleaned = cleaned.replace(/[ \t]+\n/g, '\n');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  cleaned = cleaned.split('\n').map((line) => line.replace(/\s+/g, ' ').trim()).join('\n');
+  return cleaned.trim();
+}
+
+function appendUpworkCta(text) {
+  const safeText = typeof text === 'string' ? text : '';
+  if (safeText && !safeText.match(/[?]|let's connect|happy to discuss|call|schedule|next step$/i) && !safeText.endsWith('?')) {
+    return safeText + ' Happy to discuss further or hop on a quick call.';
+  }
+  return safeText;
 }
 
 function appendCodeMentorCta(text) {
-  if (text && !text.match(/[?]|call|hop|connect|chat|talk|reach out$/i) && !text.endsWith('?')) {
-    return text + ' - want to hop on a quick call?';
+  const safeText = typeof text === 'string' ? text : '';
+  if (safeText && !safeText.match(/[?]|call|hop|connect|chat|talk|reach out$/i) && !safeText.endsWith('?')) {
+    return safeText + ' - want to hop on a quick call?';
   }
-  return text;
+  return safeText;
 }
 
 function truncateToLimit(text, limit) {
-  if (text.length <= limit) return text;
-  const truncated = text.substring(0, limit);
+  const safeText = typeof text === 'string' ? text : '';
+  if (safeText.length <= limit) return safeText;
+  const truncated = safeText.substring(0, limit);
   const lastSentenceEnd = Math.max(
     truncated.lastIndexOf('.'),
     truncated.lastIndexOf('!'),
@@ -603,11 +772,12 @@ function truncateToLimit(text, limit) {
 }
 
 function truncateCodeMentor(text, limit) {
-  if (text.length <= limit) return text;
-  const ctaMatch = text.match(/(call|hop|connect|chat|talk|reach out|\?)[^.!?]*$/i);
+  const safeText = typeof text === 'string' ? text : '';
+  if (safeText.length <= limit) return safeText;
+  const ctaMatch = safeText.match(/(call|hop|connect|chat|talk|reach out|\?)[^.!?]*$/i);
   const cta = ctaMatch ? ctaMatch[0] : '';
-  const maxBody = limit - cta.length;
-  let body = text.substring(0, maxBody);
+  const maxBody = Math.max(0, limit - cta.length);
+  let body = safeText.substring(0, maxBody);
   const lastSentenceEnd = Math.max(
     body.lastIndexOf('.'),
     body.lastIndexOf('!'),
@@ -645,7 +815,7 @@ function extractTags(text) {
 // FEW-SHOT RETRIEVAL
 // ============================================================================
 
-async function getFewShotExamples(currentRequest, platform = PLATFORM.CODEMENTOR) {
+async function getFewShotExamples(currentRequest: string, platform = PLATFORM.CODEMENTOR): Promise<ChatMessage[]> {
   const raw = await storage.get(STORAGE_KEYS.RESPONSES, []);
   const responses = Array.isArray(raw) ? raw : [];
   const platformExamples = responses.filter((e) => !e.platform || e.platform === platform);
@@ -664,8 +834,8 @@ async function getFewShotExamples(currentRequest, platform = PLATFORM.CODEMENTOR
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
     .flatMap((ex) => [
-      { role: 'user', content: ex.request },
-      { role: 'assistant', content: ex.response }
+      { role: 'user' as const, content: ex.request },
+      { role: 'assistant' as const, content: ex.response }
     ]);
 }
 

@@ -3,9 +3,14 @@
 .env.local
 .env.*.local
 
-# Test files
-test_*.json
+# Dependencies
+node_modules/
 
 # Build artifacts
+dist/
 *.log
 .DS_Store
+
+# Test output
+benchmark_results.json
+test_*.json

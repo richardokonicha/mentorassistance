@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable", "ScriptHost"],
+    "outDir": "./dist",
+    "rootDir": ".",
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false,
+    "noEmitOnError": false,
+    "declaration": false,
+    "sourceMap": false,
+    "allowJs": true,
+    "checkJs": false,
+    "types": ["chrome", "node"]
+  },
+  "include": [
+    "content.ts",
+    "background.ts",
+    "popup.ts",
+    "build.ts",
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.js",
+    "resume.pdf"
+  ]
+}
+

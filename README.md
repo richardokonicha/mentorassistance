@@ -1,74 +1,69 @@
-# AI Auto Answer - CodeMentor Chrome Extension
+# AI Auto Answer
 
-A Chrome extension that generates personalized mentor responses for CodeMentor using AI. The responses sound like your actual voice — casual, direct, opinionated, with specific technical opinions and signature phrases.
+Chrome extension that generates personalized responses for CodeMentor and Upwork using AI with your voice profile. Works on CodeMentor mentorship requests (320 char limit) and Upwork proposal cover letters (~2200 chars).
+
+## Platforms
+
+| Platform | URL Pattern | Char Limit | Voice |
+|----------|-------------|------------|-------|
+| CodeMentor | `codementor.io/m/dashboard/open-requests/*` | 320 | Casual, direct, opinionated |
+| Upwork | `upwork.com/nx/proposals/job/*/apply/` | ~2200 | Professional, persuasive |
 
 ## Features
 
-- **Voice Personalization**: Built from 4 real CodeMentor responses - captures your exact tone, technical opinions, and signature phrases
-- **Multi-Model Architecture**: Primary: Nemotron 3 Ultra (free) via Kilo Gateway with reasoning disabled; Fallback: Llama 3.3 70B via Groq
-- **Few-Shot Learning**: Dynamically retrieves your most similar past responses using Jaccard similarity
-- **Response Capture**: "💾 Save Response" button captures request + your actual response for future few-shot examples
-- **Post-Processing**: Strips 22 banned AI phrases, enforces call-to-action endings
+- **AI proposal generation** — generates a first draft automatically when you open a request/proposal page
+- **Loading indicator** — green pulse animation on the input field while generating
+- **Smart positioning** — card appears near the input field, not off-screen
+- **Refine chat** — iterative refinement with conversation history and version tracking
+- **Suggestion pills** — quick refinement presets ("make it shorter", "emphasize Kubernetes", etc.)
+- **Save responses** — store good responses as few-shot examples for future generation
+- **Resume context** — draws from your professional background when relevant
+- **Voice enforcement** — strips AI-ish phrases, enforces tone, respects character limits
+- **SPA support** — detects navigation on Upwork's React SPA and re-initializes
+- **Fallback model** — Groq Llama 3.3 70B as backup if Kilo Nemotron fails
 
-## Voice Profile
+## Build
 
-Based on your actual CodeMentor responses:
+```bash
+npm install          # install dependencies
+npm run build        # compile TypeScript + inject API keys
+npm run typecheck    # check types without emitting
+npm test             # run quality benchmark
+```
 
-- **Tone**: Casual-direct, high directness, medium-high warmth, dry-witty humor
-- **Structure**: ~3 sentences, max 2 paragraphs, no bullet lists
-- **Language**: Heavy contractions, high technical specificity, strong opinions, very low hedging
-- **Signature phrases**: "I'm a wildcard", "hop on a call", "cheers", "partner and teammate", "ready to start"
-- **Technical opinions**: 10 domains (cloud, IaC, k8s, CI, databases, architecture, LLM routers, n8n, APIs, hiring)
-- **Banned phrases**: 22 AI-isms stripped automatically ("I'd be happy to help", "great question", "it depends", etc.)
+The build compiles `.ts` sources to `dist/`, injects API keys from `.env.local`, and strips module noise. Load the extension folder (not `dist/`) as an unpacked extension in Chrome.
 
-## Model Configuration
+## Project Structure
 
-| Model | Provider | Model ID | Reasoning | Status |
-|-------|----------|----------|-----------|--------|
-| Nemotron 3 Ultra (free) | Kilo Gateway | `nvidia/nemotron-3-ultra-550b-a55b:free` | Disabled (`reasoning: {enabled: false}`) | Primary |
-| Llama 3.3 70B Versatile | Groq | `llama-3.3-70b-versatile` | N/A | Fallback |
+```
+├── content.ts          # Content script (DOM injection, UI, selectors)
+├── background.ts       # Service worker (AI calls, voice rules, storage)
+├── popup.ts            # Popup UI script
+├── build.ts            # Build script (compile + key injection + cleanup)
+├── manifest.json       # Chrome extension manifest (v3)
+├── popup.html          # Popup HTML
+├── tsconfig.json       # TypeScript configuration
+├── package.json        # npm scripts and dependencies
+├── src/types.ts        # Shared TypeScript types
+├── docs/voice-profile.md # Voice profile documentation
+├── resume.txt          # Resume context for generation
+├── test_benchmark.js   # Quality benchmark tests
+└── dist/               # Build output (gitignored)
+```
 
-Both API keys are hardcoded in `background.js`.
+## Architecture
 
-## Installation
+**Two models with fallback:**
+1. **Primary:** Kilo Nemotron 3 Ultra (free tier, supports reasoning)
+2. **Fallback:** Groq Llama 3.3 70B (fast, reliable)
 
-1. Open Chrome → `chrome://extensions`
-2. Enable "Developer mode"
-3. Click "Load unpacked" → select this folder
-4. Navigate to `https://www.codementor.io/m/dashboard/open-requests/*`
-5. Click extension icon to verify API keys (both pre-configured)
-6. On a request page, AI response buttons appear above the submit button
-7. Click a button to insert response, edit if needed, then click "💾 Save Response" to build your few-shot library
+**Voice profiles per platform:**
+- Each platform has its own `VOICE_PROFILES` entry with formality, directness, banned phrases, signature phrases, and technical opinions
+- `buildSystemPrompt(platform)` generates platform-specific system prompts
+- `enforceVoiceRules(content, platform)` post-processes output to strip banned phrases and enforce character limits
 
-## Files
+## Configuration
 
-- `manifest.json` - Manifest V3, targets CodeMentor open requests
-- `background.js` - Service worker with multi-model API, voice profile, few-shot retrieval, post-processing
-- `content.js` - Injects response buttons and save button into request pages
-- `popup.html` / `popup.js` - API key management UI (keys already hardcoded)
-- `button.css` - Button styling
+API keys are hardcoded in `background.ts` under `MODEL_CONFIG`. To change them, edit the file and rebuild.
 
-## Usage Flow
-
-1. Open a CodeMentor request
-2. Extension injects 3 AI-generated response buttons + "💾 Save Response"
-3. Click a button → inserts response into textarea
-4. Edit/personalize as needed
-5. Click "💾 Save Response" → stores (request, your_response) pair in `chrome.storage.sync`
-6. Future requests use saved responses as few-shot examples (top 3 by Jaccard similarity)
-
-## Storage
-
-- `kiloApiKey`, `groqApiKey` - API keys (synced)
-- `responses[]` - Array of {request, response, ts, tags} (max 50, synced)
-
-## Future Enhancements
-
-- Semantic similarity via Gemini embeddings (key configured)
-- Voice profile editor in popup
-- Export/import few-shot library
-- Response quality ratings
-
----
-
-*Built for CodeMentor mentors who want AI responses that actually sound like them.*
+Voice profiles are in `background.ts` under `VOICE_PROFILES`. Adjust tone, banned phrases, signature phrases, and technical opinions there.
