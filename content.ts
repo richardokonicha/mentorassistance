@@ -1339,9 +1339,41 @@ let lastInitedUrl = location.href;
 let pollHandle = null;
 let pollGeneration = 0;
 
+function cleanupExtension() {
+  document.querySelector('.ai-auto-answer-card')?.remove();
+  ensureStyles();
+  stopUpworkObserver();
+  if (pollHandle) {
+    clearTimeout(pollHandle);
+    pollHandle = null;
+  }
+  stopCoverLetterAnimation();
+  currentRequestText = '';
+  isInitializing = false;
+  sessionStorage.removeItem('ai-auto-answer-card-position');
+}
+
+function isMatchingCodeMentorPage() {
+  return /^https:\/\/www\.codementor\.io\/m\/dashboard\/open-requests\//.test(location.href);
+}
+
+function isMatchingUpworkPage() {
+  return /^https:\/\/www\.upwork\.com\/nx\/proposals\/job\/.+\/apply\//.test(location.href);
+}
+
 function init() {
   if (!currentPlatform) {
     console.log('[AI Auto Answer] Unsupported platform');
+    return false;
+  }
+
+  if (currentPlatform === PLATFORM.CODEMENTOR && !isMatchingCodeMentorPage()) {
+    cleanupExtension();
+    return false;
+  }
+
+  if (currentPlatform === PLATFORM.UPWORK && !isMatchingUpworkPage()) {
+    cleanupExtension();
     return false;
   }
 
@@ -1360,6 +1392,11 @@ function init() {
 }
 
 function initCodeMentor() {
+  if (!isMatchingCodeMentorPage()) {
+    cleanupExtension();
+    return false;
+  }
+
   const targetButton = findSubmitButton();
   if (!targetButton) {
     console.warn('[AI Auto Answer] Could not find submit button, retrying...');
@@ -1399,6 +1436,7 @@ function startUpworkObserver() {
 
   upworkObserver = new MutationObserver(() => {
     if (document.querySelector('.ai-auto-answer-card')) return;
+    if (!isMatchingUpworkPage()) return;
     if (findUpworkCoverLetter()) {
       upworkObserver.disconnect();
       upworkObserver = null;
@@ -1438,6 +1476,11 @@ function stopCoverLetterAnimation() {
 }
 
 function initUpwork() {
+  if (!isMatchingUpworkPage()) {
+    cleanupExtension();
+    return false;
+  }
+
   const textArea = findUpworkCoverLetter();
   if (!textArea) {
     console.warn('[AI Auto Answer] Could not find cover letter textarea, retrying...');
@@ -1504,6 +1547,16 @@ function startExtension() {
     return;
   }
 
+  if (currentPlatform === PLATFORM.CODEMENTOR && !isMatchingCodeMentorPage()) {
+    cleanupExtension();
+    return;
+  }
+
+  if (currentPlatform === PLATFORM.UPWORK && !isMatchingUpworkPage()) {
+    cleanupExtension();
+    return;
+  }
+
   stopUpworkObserver();
 
   if (pollHandle) {
@@ -1544,6 +1597,17 @@ function reinitialize() {
   lastReinitializeTime = now;
 
   console.log('[AI Auto Answer] Page navigation detected, re-initializing...');
+
+  if (currentPlatform === PLATFORM.CODEMENTOR && !isMatchingCodeMentorPage()) {
+    cleanupExtension();
+    return;
+  }
+
+  if (currentPlatform === PLATFORM.UPWORK && !isMatchingUpworkPage()) {
+    cleanupExtension();
+    return;
+  }
+
   startExtension();
 }
 
