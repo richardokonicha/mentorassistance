@@ -1,0 +1,40 @@
+{
+  "name": "mentorassistance",
+  "version": "1.0.0",
+  "description": "A Chrome extension that generates personalized mentor responses for CodeMentor using AI. The responses sound like your actual voice \u2014 casual, direct, opinionated, with specific technical opinions and signature phrases.",
+  "main": "background.js",
+  "scripts": {
+    "build": "node init && npm run build:all",
+    "build:watch": "node init && tsc --watch",
+    "build:env": "node init && tsx build.ts",
+    "build:all": "node init && npm run build:tsc && npm run build:env",
+    "build:tsc": "node init && tsc",
+    "test": "node test_benchmark.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/richardokonicha/mentorassistance.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/richardokonicha/mentorassistance/issues"
+  },
+  "homepage": "https://github.com/richardokonicha/mentorassistance#readme",
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "@types/node": "^26.1.1",
+    "dotenv": "^8.2.0",
+    "esbuild": "^0.28.1",
+    "node-fetch": "^3.3.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

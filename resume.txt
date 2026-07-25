@@ -1,0 +1,104 @@
+--- Page 1 ---
+RICHARD OKONICHA
+richardokonicha@gmail.comin/richardokonichagithub.com/richardokonicha
+SUMMARY
+Solutions Architect and Senior Engineer with experience engineering enterprise software, bare-metal cloud infrastructure, and distributed AI
+systems. I bring an extensive background as an individual project contributor, technical lead, and technical consultant. I'm adept at planning, solving
+complex technical problems, and standing in front of enterprise clients to bridge deep engineering depth with clear business value, while driving 
+team effort with clear communication and championing good company culture and values.
+I am focused on continuous career growth and am actively seeking challenging opportunities to scale my leadership and impact, and to express
+passion in my work.
+EXPERIENCE
+Lead Systems Architect
+Fugoku Cloud October 2025 - PresentRemote ,
+•Architected sovereign AI cloud platform on bare-metal OpenStack with GPU/TPU compute fabric; engineered LLM gateway with custom model-
+routing, LiteLLM, and Helicone analytics.
+•Consulting and talking to customers, offering value first approach to services. 
+•Built an orchestration layer with SkyPilot, automated failover, and a browser-based terminal (xterm.js).
+•Reduced inference latency from 300ms+ (EU) to <50ms (Lagos); cut tenant operational costs by 65% via microservices migration.
+•Stack: OpenStack, SkyPilot, LiteLLM, Helicone, K3s, Python, Go, GPU/TPU Orchestration, Terraform.
+Senior Infrastructure Engineer
+Inference Cloud September 2024 - November 2025Switzerland ,
+•Led enterprise application architecture for Swiss AI writing platform with strict multi-tenant isolation.
+•Served as the core technical liaison bridging high-level stakeholder business goals with engineering execution.
+•Resolved high-concurrency race condition in async request queue, eliminating production 500 errors; redesigned request pipeline for enterprise
+traffic spikes.
+•Stack: Python, Tenant Isolation, High-Concurrency Queues, Docker, Cloud Infrastructure.
+Senior Engineer - Storefront
+Swell January 2022 - August 2024San Francisco, CA Remote ,
+•Owned the core storefront theme engine and the origin theme and spearheaded feature development for a next-generation, high-scale enterprise
+SaaS platform in development.
+•Designed a resilient Stripe payment architecture processing thousands of concurrent global transactions daily.
+•Refactored the checkout pipeline to eliminate distributed state race conditions, resolving duplicate transaction charge bugs.
+•Built a containerized client-onboarding orchestration template, reducing tenant setup time from several days to under two hours.
+•Managed release cycle for our core themes including origin theme and horizon, published changelogs and documentation helping clients update
+their individual stores to latest.
+•Stack: Kubernetes, PostgreSQL, Redis, Vue.js, TypeScript, Node.js, MongoDB.
+Senior Engineer & Architect
+Cardagraph December 2020 - December 2022Salt Lake City, UT Remote ,
+•Designed production ML pipelines forecasting software delivery timelines; built a predictive analytics engine, reducing forecast error by 30%.
+•Architected full-stack interfaces and integrated the ML engine into client dashboards via high-performance REST APIs.
+•Designed the UI for the analytics platform and its dashboards; this project was ahead of its time before frontier AI models, utilizing primitive ML
+inference and mathematical formulas to create insights.
+•Stack: Python, React.js, Docker, PostgreSQL, REST APIs, Feature Engineering
+Backend Engineer
+OHIOH / Linux Foundation Public Health March 2020 - November 2020Germany Remote ,
+•Built a high-throughput REST API backend for a large-scale contact-tracing application (Linux Foundation COVID hackathon).
+•Sponsored by IBM & Linux Foundation.
+•Isolated and patched a critical memory leak in the upstream MongoDB driver causing system degradation under peak traffic loads.
+•Optimized database query paths and connection pooling to ensure uninterrupted availability during rapid regional scale-ups.
+•Stack: Django, REST API, OpenAPI/Swagger 3.0, MongoDB, Docker.
+Technical Lead
+eHealth4Everyone March 2018 - February 2020Abuja, Nigeria On-site ,
+--- Page 2 ---
+•Led team of 6 engineers building health data systems for government clients.
+•Designed OpenHisa health insurance system deployed across 12 Nigerian states; engineered MSDAT platform (Gates Foundation) serving 10,000+
+users.
+•Refactored legacy database paths, eliminating N+1 query patterns to reduce critical API latencies by 40%.
+•Stack: Python, Django, React.js, MongoDB, PostgreSQL, Docker, Kubernetes, Traefik.
+Software Engineer & Founder
+Swedish Accelerator (Roar Hub) May 2016 - August 2018Nigeria On-site ,
+•Selected for international accelerator focused on agile development and VC fundraising.
+•Architected and shipped multiple MVPs from scratch in Python and JavaScript under constrained timelines.
+•Stack: Python, JavaScript, Shell Scripting, MVP Architecture.
+EDUCATION
+B.Eng. in Mechanical Engineering
+University of Nigeria, Nsukka
+•Focus: Systems Architecture & Design * Autonomous Robotics * Computational Modeling
+Advanced Computer Programming 
+Harvard University
+•CS50 * Algorithms * File Systems * Automation  * Cloud * Machine Learning
+INVOLVEMENT
+AI Integrations Expert (Open Source)
+Remote• MindsDB (Parttime)• September 2025 - Present
+•Core Engineering: Built and maintained critical core AI integrations enabling developers to seamlessly query LLMs via standard SQL workflows,
+including the Postgres, Elasticsearch, Teams teams connector and adding MCP support for agents. 
+•Pipeline Automation: Collaborated directly with the core engineering team on processes, production-grade model serving frameworks and
+automated fine-tuning pipelines.
+•Stack: Python, SQL, MindsDB Core, Model Serving, LLM Integrations
+Principal Software and Cloud Architect & AI Consultant
+Remote (Part-Time)• Independent Practice/Consultant• June 2024 - Present
+•Enterprise Advisory: Advise global startups and enterprise clients on sovereign cloud strategy, high-performance GPU/TPU cluster provisioning,
+and private cloud orchestration.
+•AI365Services (Contract): Architected AI adoption strategies for enterprise transition to agentic systems; implemented Turbo Quant quantization
+on self-hosted LLMs, optimizing VRAM and inference throughput thus cutting cost without losing advantage, built secure AI Agent framework
+for enterprise and partook in client sales calls and supported strategy development effort across board.
+•Enterprise Architecture & Security: Optimized containerized IAM deployments for AuthentikSecurity (Open Source) and engineered secure
+infrastructure for AI code-generation agents via OpenHands.
+•Technical Leadership: Mentored and advised 100+ developers, engineering managers, and technical leaders on scaling distributed systems and
+complex cloud architectures via Codementor.
+•Stack: Private Cloud Strategy, High-Performance GPU Orchestration, Turbo Quant, IAM, Enterprise Architecture AI Integrations.
+GDG Tech Community Leader
+Asaba• Google Developers Community• January 2021 - December 2023
+•Moved to my hometown for a brief period and couldn't find a tech community. Met a couple of techies at the gym, had a good chat, and decided to
+start a new Google Developers Chapter for Asaba, Delta State. (I had prior experience with tech hackathons, events and GDG communities from my
+time at the university and my sister is a GDG expert so I had her help too)
+•Became a Co-lead, built a core team, and consolidated our efforts in planning, organization, and fundraising for the event.
+•Personally met with a number of local tech firm CEOs and a few regional bank managers, selling the dream of building a thriving tech community
+and pitching to them a future hiring pool of professionals.
+•Personally hosted the first, very thrilling hackathon a few weeks before the community debut at the Google Developers Festival event, drawing
+over 250 people in attendance and streaming the entire event live on YouTube.
+•Co-hosted the official debut festival that December, securing an attendance of over 700 community members.
+•Left Asaba in 2023, handing over all operational responsibilities to members of the leadership team.
+•The Asaba chapter now independently runs about 4 tech events every year, was gifted a physical coworking space by the Delta State Government
+called DSIHUB, and has achieved official government and Google worldwide acknowledgment and financial support.
