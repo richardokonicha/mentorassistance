@@ -9,7 +9,7 @@
     "build:env": "tsx build.ts",
     "build:all": "npm run build:tsc && npm run build:env",
     "build:tsc": "tsc",
-    "test": "node test_benchmark.js",
+    "test": "node test_prompt_contract.js && node test_benchmark.js",
     "typecheck": "tsc --noEmit"
   },
   "directories": {
