@@ -5,8 +5,7 @@
   "description": "Generates personalized mentor responses for CodeMentor and Upwork proposals using AI with your voice profile",
   "permissions": ["storage"],
   "host_permissions": [
-    "https://api.kilo.ai/",
-    "https://api.groq.com/",
+    "https://api.experientiallabs.ai/",
     "https://generativelanguage.googleapis.com/"
   ],
   "icons": {
@@ -38,6 +37,6 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://api.kilo.ai https://api.groq.com https://generativelanguage.googleapis.com;"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://api.experientiallabs.ai https://generativelanguage.googleapis.com;"
   }
 }

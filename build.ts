@@ -29,8 +29,7 @@ function loadEnv() {
 
 function injectKeys(content, env) {
   return content
-    .replace(/__KILO_API_KEY__/g, env.KILO_API_KEY || '')
-    .replace(/__GROQ_API_KEY__/g, env.GROQ_API_KEY || '')
+    .replace(/__EXPERIENTIAL_API_KEY__/g, env.EXPERIENTIAL_API_KEY || '')
     .replace(/__GEMINI_API_KEY__/g, env.GEMINI_API_KEY || '')
     .replace(/__GOOGLE_API_KEY__/g, env.GOOGLE_API_KEY || env.GEMINI_API_KEY || '');
 }
