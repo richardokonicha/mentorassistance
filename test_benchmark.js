@@ -77,7 +77,7 @@ const TEST_CASES = [
 // ============================================================================
 
 const VOICE_PROFILE = {
-  bannedPhrases: [
+  discouragedPhrases: [
     "i'd be happy to help",
     "great question",
     "let me break this down",
@@ -145,7 +145,7 @@ function hasCallToAction(str) {
 
 function checkBannedPhrases(str) {
   const lower = str.toLowerCase();
-  return VOICE_PROFILE.bannedPhrases.filter(phrase => lower.includes(phrase.toLowerCase()));
+  return VOICE_PROFILE.discouragedPhrases.filter(phrase => lower.includes(phrase.toLowerCase()));
 }
 
 function checkSignaturePhrases(str) {
@@ -228,9 +228,9 @@ async function callModel(modelConfig, txt, fewShotMessages = []) {
       ...fewShotMessages,
       { role: "user", content: txt }
     ],
-    temperature: 0.7,
-    top_p: 0.9,
-    max_tokens: 75,
+    temperature: 0.45,
+    top_p: 0.85,
+    max_tokens: 160,
     stop: null,
     ...(modelConfig.supportsReasoning && { reasoning: { enabled: false } })
   });
@@ -276,7 +276,7 @@ async function callModel(modelConfig, txt, fewShotMessages = []) {
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      throw new Error(`${modelConfig.name} request timeout (${modelConfig.timeoutMs}ms)`);
+      throw new Error(`${modelConfig.name} request timeout (${Math.min(modelConfig.timeoutMs, 12000)}ms)`);
     }
     throw error;
   }
@@ -284,18 +284,11 @@ async function callModel(modelConfig, txt, fewShotMessages = []) {
 
 function enforceVoiceRules(content) {
   let cleaned = content;
-  
-  for (const phrase of VOICE_PROFILE.bannedPhrases) {
-    const escaped = phrase.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
-    const regex = new RegExp(escaped, 'gi');
-    cleaned = cleaned.replace(regex, '');
-  }
-  
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   
   if (cleaned && !cleaned.match(/[?]|call|hop|connect|chat|talk|reach out$/i)) {
     if (!cleaned.endsWith('?')) {
-      cleaned += ' - want to hop on a quick call?';
+      cleaned += ' Want to talk through it?';
     }
   }
   
@@ -342,8 +335,8 @@ VOICE & TONE:
 - Lists: ${vp.useLists ? 'when helpful' : 'avoid'}
 - End with a specific hook for a call
 
-NEVER SAY:
-${vp.bannedPhrases.map(p => `- "${p}"`).join('\n')}
+PHRASES TO USE CAREFULLY, ONLY WHEN THEY GENUINELY FIT:
+${vp.discouragedPhrases.map(p => `- "${p}"`).join('\n')}
 
 YOUR SIGNATURE MOVES:
 ${vp.signaturePhrases.map(p => `- "${p}"`).join('\n')}
@@ -376,7 +369,15 @@ User: "Solution engineers needed for AI/public cloud infrastructure."
 You: "Hi Alexander, you're in luck - I'm a solutions engineer in AI and public cloud infra. Was fullstack before AI. Have all the cutting-edge tools for this. Let's connect."`;
 }
 
-const SYSTEM_PROMPT = buildSystemPrompt();
+const SYSTEM_PROMPT = `${buildSystemPrompt()}
+
+GROUNDING RULES:
+- Use only facts from the request and verified resume context.
+- Do not invent names, employers, tools, metrics, dates, availability, or prior conversations.
+- Omit missing details instead of guessing.
+- Use one main idea and at most two relevant technical details.
+- Prefer smooth sentences over keyword lists or stacked tool names.
+- Return only the sendable message.`;
 
 // ============================================================================
 // MODEL CONFIGS
@@ -384,22 +385,13 @@ const SYSTEM_PROMPT = buildSystemPrompt();
 
 const MODELS = [
   {
-    name: "kilo-nemotron-3-ultra",
-    endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
-    model: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    apiKey: process.env.KILO_API_KEY || "",
+    name: "experiential-gpt-5.6-luna",
+    endpoint: "https://api.experientiallabs.ai/v1/chat/completions",
+    model: "gpt-5.6-luna",
+    apiKey: process.env.EXPERIENTIAL_API_KEY || "",
     enabled: true,
     supportsReasoning: true,
-    timeoutMs: 30000
-  },
-  {
-    name: "groq-llama-3.3-70b",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    model: "llama-3.3-70b-versatile",
-    apiKey: process.env.GROQ_API_KEY || "",
-    enabled: true,
-    supportsReasoning: false,
-    timeoutMs: 30000
+    timeoutMs: 20000
   }
 ];
 
@@ -417,8 +409,13 @@ async function runBenchmark() {
   console.log("=".repeat(70));
   
   const results = [];
+  const activeModels = MODELS.filter(m => m.enabled && m.apiKey && m.apiKey.length > 20);
+  if (activeModels.length === 0) {
+    console.log('No Experiential Labs API key configured; skipping live benchmark.');
+    return;
+  }
   
-  for (const model of MODELS.filter(m => m.enabled)) {
+  for (const model of activeModels) {
     console.log(`\n📊 Testing ${model.name}...\n`);
     
     for (const testCase of TEST_CASES) {

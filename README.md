@@ -26,14 +26,13 @@ Chrome extension that generates personalized responses for CodeMentor and Upwork
 - **Resume context** — draws from your professional background when relevant to the request
 - **Voice enforcement** — strips AI-ish phrases, enforces tone, respects character limits
 - **SPA support** — detects navigation on Upwork's React SPA and re-initializes or cleans up automatically
-- **Fallback model** — Groq Llama 3.3 70B as backup if Kilo Nemotron fails
+- **Direct model access** — Experiential Labs GPT-5.6 Luna without a slower model router
 - **Platform-gated loading** — only active on matching proposal URLs; fully cleans up when you leave
 
 ## Architecture
 
-**Two models with fallback:**
-1. **Primary:** Kilo Nemotron 3 Ultra (free tier, supports reasoning)
-2. **Fallback:** Groq Llama 3.3 70B (fast, reliable)
+**Single direct provider:**
+1. **Experiential Labs:** GPT-5.6 Luna through its OpenAI-compatible API
 
 **Voice profiles per platform:**
 - Each platform has its own `VOICE_PROFILES` entry with formality, directness, banned phrases, signature phrases, and technical opinions
@@ -49,7 +48,7 @@ npm run typecheck    # check types without emitting
 npm test             # run quality benchmark
 ```
 
-The build compiles `.ts` sources to `dist/`, injects API keys from `.env.local`, and strips module noise. Load the extension folder as an unpacked extension in Chrome.
+The build compiles `.ts` sources to `dist/`, injects `EXPERIENTIAL_API_KEY` and optional Gemini embedding keys from `.env.local`, and strips module noise. Load the extension folder as an unpacked extension in Chrome.
 
 ## Project Structure
 

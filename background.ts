@@ -40,22 +40,13 @@ type ClearResponsesMessage = {
 
 const MODEL_CONFIG = {
   primary: {
-    name: "kilo-nemotron-3-ultra",
-    endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
-    model: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    apiKey: "__KILO_API_KEY__",
+    name: "experiential-gpt-5.6-luna",
+    endpoint: "https://api.experientiallabs.ai/v1/chat/completions",
+    model: "gpt-5.6-luna",
+    apiKey: "__EXPERIENTIAL_API_KEY__",
     enabled: true,
     supportsReasoning: true,
-    timeoutMs: 30000
-  },
-  fallback: {
-    name: "groq-llama-3.3-70b",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    model: "llama-3.3-70b-versatile",
-    apiKey: "__GROQ_API_KEY__",
-    enabled: true,
-    supportsReasoning: false,
-    timeoutMs: 30000
+    timeoutMs: 20000
   }
 };
 
@@ -106,7 +97,7 @@ const VOICE_PROFILES = {
     opinionationStrength: 'strong',
     hedgingFrequency: 'very-low',
     maxLength: 320,
-    bannedPhrases: [
+    discouragedPhrases: [
       "i'd be happy to help",
       'great question',
       'let\'s break this down',
@@ -139,15 +130,15 @@ const VOICE_PROFILES = {
       'available immediately'
     ],
     opinions: {
-      cloud: 'aws for most, gcp if data-heavy, avoid azure unless forced',
-      iac: 'terraform > pulumi > cloudformation. modules non-negotiable',
-      k8s: 'don\'t run your own control plane. eks/gke/aks or nothing',
-      ci: 'github actions for simplicity, gitlab if you need the platform',
-      databases: 'postgres for almost everything. redis for cache. specialist dbs only when proven needed',
-      architecture: 'start monolith. extract services when pain is real, not imagined',
-      llm_routers: 'litellm, portkey, agentic foundation - know the tradeoffs',
-      n8n: 'early adopter. whatsapp/telegram integrations. mcp via agents now',
-      apis: 'rest + swagger/openapi. jwt auth. docker + k8s deployment',
+      cloud: 'choose the cloud based on the workload and constraints',
+      iac: 'choose the infrastructure tool that fits the team and system',
+      k8s: 'use managed or self-managed Kubernetes based on operational needs',
+      ci: 'choose CI tooling based on the existing workflow and team',
+      databases: 'choose the database based on data shape, scale, and operational needs',
+      architecture: 'start with the simplest architecture that can support the real requirements',
+      llm_routers: 'choose routing and observability tools based on the workload and tradeoffs',
+      n8n: 'use automation tools where they simplify the actual workflow',
+      apis: 'prefer clear, observable interfaces that fit the system',
       hiring: 'don\'t list mechanical engineering for AI gateway roles'
     }
   },
@@ -164,7 +155,7 @@ const VOICE_PROFILES = {
     opinionationStrength: 'strong',
     hedgingFrequency: 'low',
     maxLength: 2200,
-    bannedPhrases: [
+    discouragedPhrases: [
       "i'd be happy to help",
       'great question',
       'let\'s break this down',
@@ -242,6 +233,24 @@ function buildSystemPrompt(platform = PLATFORM.CODEMENTOR) {
   return builder(profile);
 }
 
+function buildGroundingRules(platform: Platform) {
+  const profile = VOICE_PROFILES[platform];
+  return `
+GROUNDING RULES:
+- Use only facts from the request and the resume context below.
+- Do not invent names, employers, tools, metrics, dates, availability, or prior conversations.
+- Do not claim experience with a tool unless it appears in the resume context or request.
+- Only mention technical details that are directly relevant to the request.
+- Do not list keywords or keyword stuffing; combine relevant details into natural sentences.
+- Write a smooth, readable message that sounds like a person, not a profile summary.
+- Use one main idea and at most two relevant technical details.
+- Prefer flowing sentences over keyword lists, labels, colons, or stacked tool names.
+- Use these phrases only when they genuinely fit the request and sentence; never force or mechanically avoid them.
+- If a detail is missing, omit it instead of guessing.
+- Return only the message the user can send, with no analysis or labels.
+- Stay within ${profile.maxLength} characters.`;
+}
+
 const RESUME_CONTEXT = `Your relevant experience:
 - Lead Systems Architect at Fugoku Cloud: sovereign AI cloud on bare-metal OpenStack, GPU/TPU fabric, LLM gateway with LiteLLM/Helicone, SkyPilot orchestration, reduced inference latency from 300ms+ to <50ms, cut tenant costs 65%.
 - Senior Infrastructure Engineer at Inference Cloud: enterprise AI platform, multi-tenant isolation, high-concurrency request pipelines, stakeholder liaison.
@@ -253,6 +262,7 @@ const RESUME_CONTEXT = `Your relevant experience:
 
 function buildCodeMentorPrompt(vp) {
   return `You are a senior cloud/platform engineer who mentors on CodeMentor.
+${buildGroundingRules(PLATFORM.CODEMENTOR as Platform)}
 
 VOICE & TONE:
 - ${vp.formality}, ${vp.directness} directness, ${vp.warmth} warmth
@@ -262,7 +272,7 @@ VOICE & TONE:
 - Opinionated: ${vp.opinionationStrength}
 - Minimal hedging: ${vp.hedgingFrequency}
 - max ${vp.maxParagraphs} paragraphs
-- End with a specific hook for a call
+- End with a specific hook only when it fits naturally
 
 RESUME CONTEXT - DRAW FROM THIS WHEN RELEVANT:
 - Lead Systems Architect at Fugoku Cloud: sovereign AI cloud on bare-metal OpenStack, GPU/TPU fabric, LLM gateway with LiteLLM/Helicone, SkyPilot orchestration, reduced inference latency from 300ms+ to <50ms, cut tenant costs 65%.
@@ -273,10 +283,11 @@ RESUME CONTEXT - DRAW FROM THIS WHEN RELEVANT:
 - Technical Lead at eHealth4Everyone: led 6-engineer team, government health data systems across 12 Nigerian states, Gates Foundation platform.
 - Mentored 100+ developers/engineering managers on Codementor on distributed systems and cloud architecture.
 
-When a question relates to AI infrastructure, cloud architecture, Kubernetes, LLM/gateway work, multi-tenant systems, or high-scale SaaS, reference specific outcomes from this background. Do NOT mention unrelated experience like mechanical engineering, GDG community work, or hackathons unless directly relevant.
+Use the resume as a source of examples, not a checklist. Mention only experience that naturally supports the request. The resume is incomplete, so do not treat an unlisted technology as a lack of ability. Never claim a specific tool or result unless it is in the request or resume.
 
-NEVER USE AI-ISH PHRASES:
-${vp.bannedPhrases.map(p => `- "${p}"`).join('\n')}
+PHRASES TO USE CAREFULLY, ONLY WHEN THEY GENUINELY FIT:
+- Use these phrases only when they genuinely fit the request and sentence; never force or mechanically avoid them.
+${vp.discouragedPhrases.map(p => `- "${p}"`).join('\n')}
 
 YOUR SIGNATURE QUALITIES (use naturally, don't force):
 ${vp.signaturePhrases.map(p => `- ${p}`).join('\n')}
@@ -291,27 +302,12 @@ RESPONSE PROCESS:
 4. Strip meta-commentary, keep only what you'd type
 5. End with a specific hook for a call
 6. HARD LIMIT: Maximum 320 characters total. Count every character. Trim aggressively.
-
---- FEW-SHOT EXAMPLES ---
-Example 1:
-User: "Application for AI LLM Gateway Router Project. Need someone with LiteLLM, Portkey experience. Mechanical engineering listed but strange for this role."
-You: "hey James, your project makes total sense - LLM gateway router is the right positioning. I've worked with LiteLLM, Portkey, and the agentic foundation router. The mechanical engineering requirement is weird for this role, but coincidentally I have a BS in MechE and grad in CompE. I can jump in fast and be a real partner/teammate. Let's hop on a call - I'm ready to start. cheers"
-
-Example 2:
-User: "Need n8n automation for WhatsApp quote system. 600+ daily quotes, PHP POS API, GoHighLevel approval."
-You: "hey, I've been using n8n since pre-COVID discord days - built Telegram signal forwarding, now doing complex AI workflows with MCP via agents. For 600 quotes/day: n8n WhatsApp Business API for intake, GPT-4o for parsing, GoHighLevel webhook for approval, PHP POS bearer token for inventory/pricing, GPT-4o-mini for quote generation, WhatsApp/IG templates for delivery. Redis caching for inventory lookups, parallel execution for peak days. Available immediately - when can we hop on a call?"
-
-Example 3:
-User: "Looking to join Leaseweb's elite team. Interviewed before, inspired by Richard's impact."
-You: "Richard, I've interviewed at Leaseweb before and still want in. Your experience is inspiring, plus we share the name - that's a sign. I bring industry knowledge, speed, charisma, and strong customer relations. Would love to be on your team and your mentee if you're open to it. cheers and happy new month"
-
-Example 4:
-User: "Solution engineers needed for AI/public cloud infrastructure."
-You: "Hi Alexander, you're in luck - I'm a solutions engineer in AI and public cloud infra. Was fullstack before AI. Have all the cutting-edge tools for this. Let's connect."`;
+`;
 }
 
 function buildUpworkPrompt(vp) {
   return `You are writing a proposal cover letter on Upwork for a freelance tech role.
+${buildGroundingRules(PLATFORM.UPWORK as Platform)}
 
 VOICE & TONE:
 - ${vp.formality}, ${vp.directness} directness, ${vp.warmth} warmth
@@ -325,7 +321,7 @@ VOICE & TONE:
 RESUME CONTEXT - DRAW FROM THIS WHEN RELEVANT:
 ${RESUME_CONTEXT}
 
-When a question relates to AI infrastructure, cloud architecture, Kubernetes, LLM/gateway work, multi-tenant systems, or high-scale SaaS, reference specific outcomes from this background. Do NOT mention unrelated experience like mechanical engineering, GDG community work, or hackathons unless directly relevant.
+Use the resume as a source of examples, not a checklist. Mention only experience that naturally supports the request. The resume is incomplete, so do not treat an unlisted technology as a lack of ability. Never claim a specific tool or result unless it is in the request or resume.
 
 COPYEDITOR RULES - FOLLOW THESE EXACTLY:
 - ONE IDEA PER PARAGRAPH. Start a new paragraph whenever the focus shifts.
@@ -334,8 +330,9 @@ COPYEDITOR RULES - FOLLOW THESE EXACTLY:
 - SENTENCE STRUCTURE: Use short, varied sentences. Avoid long, winding sentences with too many commas.
 - NO MARKDOWN CRUTCHES: No bullets, numbered lists, or excessive bolding. Use clean paragraphs and white space only.
 
-NEVER USE AI-ISH PHRASES:
-${vp.bannedPhrases.map(p => `- "${p}"`).join('\n')}
+PHRASES TO USE CAREFULLY, ONLY WHEN THEY GENUINELY FIT:
+- Use these phrases only when they genuinely fit the request and sentence; never force or mechanically avoid them.
+${vp.discouragedPhrases.map(p => `- "${p}"`).join('\n')}
 
 NEVER MENTION:
 - Project duration or timeline
@@ -351,34 +348,12 @@ YOUR TECHNICAL POSITIONS:
 ${Object.entries(vp.opinions).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
 
 PROPOSAL STRUCTURE:
-1. Open with a connection to the specific project
-2. Show you read their requirements (reference 2-3 specific details)
-3. State why you are a fit (relevant tools, recent similar work, specific outcomes)
-4. Propose one concrete next step: usually a short call or intro conversation
+1. Open with a natural connection to the specific project
+2. Show you read their requirements using only the most relevant detail
+3. State why you are a fit without stacking keywords or unsupported claims
+4. Propose one concrete next step only if the request invites a conversation
 5. Keep it under ~2200 characters total
-
---- FEW-SHOT EXAMPLES ---
-Example 1:
-User: "Validate AI API integration architecture for Bizware AI sales coaching platform. Need API Development, AI Model Integration, AI-Generated Code. Expert level, part-time engagement, short timeline."
-You: "Hi, this project aligns well with my recent work building AI API integrations across cloud-native stacks.
-
-I've shipped similar architecture-validation sprints using LiteLLM/Portkey routing, OpenAI/Anthropic API orchestration, and Pydantic contract testing. That matches your API Development, AI Model Integration, and AI-Generated Code requirements closely.
-
-I also bring strong opinions on clean architecture. Start with a thin integration layer. Validate contracts before full MVP build-out. Instrument observability from day one. My last engagement reduced integration latency by 40% by catching schema mismatches early.
-
-Happy to hop on a 20-minute call this week to map your core workflow and an initial integration test.";
-
-Example 2:
-User: "Looking for Full Stack Development with API Development and AI Model Integration. Expert level. Part-time engagement."
-You: "I see you need both full-stack delivery and AI integration depth. That is exactly what I do daily.
-
-Recent relevant experience: I built an AI gateway router handling LiteLLM, Portkey, and self-hosted models with OpenAPI contract tests. I also built a Next.js admin surface for prompt orchestration.
-
-My stance on architecture is simple. Validate the integration contract before building the full stack. Keep routing logic out of the app layer. Use environment-specific config from day one.
-
-I also have a background in mechanical engineering. It helps when diagnosing system-level bottlenecks across hardware/software boundaries.
-
-For a fit like this, my first move is a short discovery. Schema audit, two proof-of-concept endpoints, shared runbook. When works for a quick call?"`;
+`;
 }
 
 // ============================================================================
@@ -428,6 +403,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 function handleGenerateRequest(message: GetOptionsFromOpenAIMessage, sendResponse) {
   const { txt, platform } = message;
+  // Generation path does not read saved examples.
   const activePlatform = (platform || PLATFORM.CODEMENTOR) as Platform;
 
   if (typeof txt !== 'string' || txt.trim().length === 0) {
@@ -435,8 +411,7 @@ function handleGenerateRequest(message: GetOptionsFromOpenAIMessage, sendRespons
     return false;
   }
 
-  getFewShotExamples(txt, activePlatform)
-    .then((fewShotMessages) => callModelWithFallback(txt, fewShotMessages as ChatMessage[], activePlatform))
+  callModelWithFallback(txt, [], activePlatform)
     .then((result) => sendResponse({ success: true, data: result }))
     .catch((error: unknown) => {
       console.error('[AI Auto Answer] Model call failed:', error);
@@ -462,8 +437,7 @@ function handleRefineRequest(message: RefineProposalMessage, sendResponse) {
     { role: 'user', content: `Refine the proposal above: ${refinementPrompt}` }
   ] as ChatMessage[];
 
-  getFewShotExamples(originalRequest, activePlatform)
-    .then((fewShotMessages) => callModelWithFallback(originalRequest, fewShotMessages, activePlatform, userMessages))
+  callModelWithFallback(originalRequest, [], activePlatform, userMessages)
     .then((result) => sendResponse({ success: true, data: result }))
     .catch((error) => {
       console.error('[AI Auto Answer] Replan failed:', error);
@@ -535,7 +509,7 @@ function handleClearResponses(_message: ClearResponsesMessage, sendResponse) {
 // ============================================================================
 
 function getActiveModels() {
-  return [MODEL_CONFIG.primary, MODEL_CONFIG.fallback].filter((m) => m.enabled && m.apiKey && m.apiKey.length > 20);
+  return [MODEL_CONFIG.primary].filter((m) => m.enabled && m.apiKey && m.apiKey.length > 20);
 }
 
 async function callModelWithFallback(txt: string, fewShotMessages: ChatMessage[] | null, platform: Platform, userMessages: ChatMessage[] | null = null): Promise<string> {
@@ -561,7 +535,7 @@ async function callModelWithFallback(txt: string, fewShotMessages: ChatMessage[]
 }
 
 async function callModelWithRetry(model: ModelConfig, txt: string, fewShotMessages: ChatMessage[] | null, platform: Platform, userMessages: ChatMessage[] | null = null, attempt = 1): Promise<string> {
-  const maxRetries = 3;
+  const maxRetries = 1;
   const baseDelay = 1000;
 
   try {
@@ -580,24 +554,23 @@ async function callModelWithRetry(model: ModelConfig, txt: string, fewShotMessag
 
 async function callModel(model, txt, fewShotMessages, platform, userMessages = null) {
   const activePlatform = (platform || PLATFORM.CODEMENTOR) as Platform;
-  const maxTokens = activePlatform === PLATFORM.UPWORK ? 600 : 80;
+  const maxTokens = activePlatform === PLATFORM.UPWORK ? 420 : 96;
 
   const body = JSON.stringify({
     model: model.model,
     messages: [
       { role: 'system', content: buildSystemPrompt(activePlatform) },
-      ...fewShotMessages,
       ...(userMessages || [{ role: 'user', content: txt }])
     ],
-    temperature: 0.7,
-    top_p: 0.9,
+    temperature: 0.45,
+    top_p: 0.85,
     max_tokens: maxTokens,
     stop: null,
     ...(model.supportsReasoning && { reasoning: { enabled: false } })
   });
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), model.timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), Math.min(model.timeoutMs, 12000));
 
   try {
     const response = await fetch(model.endpoint, {
@@ -629,7 +602,7 @@ async function callModel(model, txt, fewShotMessages, platform, userMessages = n
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`${model.name} request timeout (${model.timeoutMs}ms)`);
+      throw new Error(`${model.name} request timeout (${Math.min(model.timeoutMs, 12000)}ms)`);
     }
     throw error;
   }
@@ -649,29 +622,20 @@ function sleep(ms) {
 // VOICE RULES
 // ============================================================================
 
-function getBannedRegexes(platform) {
-  const profile = VOICE_PROFILES[platform] || VOICE_PROFILES[PLATFORM.CODEMENTOR];
-  return profile.bannedPhrases.map((phrase) =>
-    new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
-  );
-}
-
 function enforceVoiceRules(content, platform = PLATFORM.CODEMENTOR) {
   const profile = VOICE_PROFILES[platform] || VOICE_PROFILES[PLATFORM.CODEMENTOR];
   let cleaned = content;
-
-  for (const regex of getBannedRegexes(platform)) {
-    cleaned = cleaned.replace(regex, '');
-  }
 
   if (platform === PLATFORM.UPWORK) {
     cleaned = stripCostAndDuration(cleaned);
     cleaned = formatUpworkProposal(cleaned as string);
     cleaned = appendUpworkCta(cleaned);
+
     cleaned = truncateToLimit(cleaned, profile.maxLength);
   } else {
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
     cleaned = appendCodeMentorCta(cleaned);
+
     cleaned = truncateCodeMentor(cleaned, profile.maxLength);
   }
 
@@ -745,8 +709,8 @@ function stripCostAndDuration(text) {
 
 function appendUpworkCta(text) {
   const safeText = typeof text === 'string' ? text : '';
-  if (safeText && !safeText.match(/[?]|let's connect|happy to discuss|call|schedule|next step$/i) && !safeText.endsWith('?')) {
-    return safeText + ' Happy to discuss further or hop on a quick call.';
+  if (safeText && !safeText.match(/[?]|let's connect|call|schedule|next step$/i) && !safeText.endsWith('?')) {
+    return safeText + ' Open to a quick conversation?';
   }
   return safeText;
 }
@@ -754,7 +718,7 @@ function appendUpworkCta(text) {
 function appendCodeMentorCta(text) {
   const safeText = typeof text === 'string' ? text : '';
   if (safeText && !safeText.match(/[?]|call|hop|connect|chat|talk|reach out$/i) && !safeText.endsWith('?')) {
-    return safeText + ' - want to hop on a quick call?';
+    return safeText + ' Want to talk through it?';
   }
   return safeText;
 }
@@ -832,9 +796,9 @@ async function getFewShotExamples(currentRequest: string, platform = PLATFORM.CO
   return scored
     .filter((e) => e.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
+    .slice(0, 2)
     .flatMap((ex) => [
-      { role: 'user' as const, content: ex.request },
+      { role: 'user' as const, content: `Style reference only. Do not copy facts: ${ex.request}` },
       { role: 'assistant' as const, content: ex.response }
     ]);
 }
