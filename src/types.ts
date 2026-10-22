@@ -13,7 +13,6 @@ export interface VoiceProfile {
   opinionationStrength: string;
   hedgingFrequency: string;
   maxLength: number;
-  bannedPhrases: string[];
   signaturePhrases: string[];
   opinions: Record<string, string>;
 }
@@ -24,7 +23,6 @@ export interface ModelConfig {
   model: string;
   apiKey: string;
   enabled: boolean;
-  supportsReasoning: boolean;
   timeoutMs: number;
 }
 
@@ -69,6 +67,19 @@ export interface SaveResponseMessage {
   platform?: Platform;
 }
 
+export interface ClientResponseDetectedMessage {
+  action: 'clientResponseDetected';
+  conversationUrl: string;
+  messageKey: string;
+  preview: string;
+}
+
+export interface ClientResponseDetectedResponse {
+  success: boolean;
+  notified?: boolean;
+  error?: string;
+}
+
 export interface OptionsResponse {
   success: boolean;
   data?: string;
@@ -95,7 +106,7 @@ export const RESUME_CONTEXT = `Your relevant experience:
 - Independent Consultant: enterprise advisory on sovereign cloud, GPU/TPU orchestration, AI adoption/agentic systems, Turbo Quant quantization, client sales calls.
 - AI Integrations Expert at MindsDB: LLM integrations via SQL, model serving frameworks, MCP support for agents, automated fine-tuning pipelines.
 - Technical Lead at eHealth4Everyone: led 6-engineer team, government health data systems across 12 Nigerian states, Gates Foundation platform.
-- Mentored 100+ developers/engineering managers on Codementor on distributed systems and cloud architecture.` as const;
+- Focus on the requested outcome and explain the concrete approach that will complete the work properly.` as const;
 
 declare global {
   interface Window {

@@ -3,9 +3,10 @@
   "name": "AI Auto Answer",
   "version": "1.1.0",
   "description": "Generates personalized mentor responses for CodeMentor and Upwork proposals using AI with your voice profile",
-  "permissions": ["storage"],
+  "permissions": ["storage", "notifications", "tabs"],
   "host_permissions": [
-    "https://api.experientiallabs.ai/",
+    "https://www.codementor.io/",
+    "https://api.kilo.ai/",
     "https://generativelanguage.googleapis.com/"
   ],
   "icons": {
@@ -37,6 +38,6 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://api.experientiallabs.ai https://generativelanguage.googleapis.com;"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://api.kilo.ai https://generativelanguage.googleapis.com;"
   }
 }
