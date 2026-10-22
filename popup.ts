@@ -1,7 +1,8 @@
 const elements = {
   responseCount: document.getElementById('responseCount'),
   providerStatus: document.getElementById('providerStatus'),
-  status: document.getElementById('status')
+  status: document.getElementById('status'),
+  openManualBtn: document.getElementById('openManualBtn')
 } as const;
 
 function showStatus(message: string, isError = false): void {
@@ -16,10 +17,6 @@ function showStatus(message: string, isError = false): void {
     el.style.display = 'none';
   }, 4000);
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadStatus();
-});
 
 async function loadStatus(): Promise<void> {
   try {
@@ -46,3 +43,27 @@ async function loadStatus(): Promise<void> {
     }
   }
 }
+
+async function openManualMode(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    showStatus('No active tab found', true);
+    return;
+  }
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, { action: 'openManualMode' });
+    showStatus('Opening Manual Mode...');
+    window.close();
+  } catch (err) {
+    showStatus('Unable to open Manual Mode on this page', true);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadStatus();
+
+  if (elements.openManualBtn) {
+    elements.openManualBtn.addEventListener('click', openManualMode);
+  }
+});

@@ -38,15 +38,53 @@ type ClearResponsesMessage = {
   action: 'clearResponses';
 };
 
+type ClientResponseDetectedMessage = {
+  action: 'clientResponseDetected';
+  conversationUrl: string;
+  messageKey: string;
+  preview: string;
+};
+
+// Ordered fallback chain. The first model that returns usable content wins.
+//
+// poolside/laguna-s-2.1:free is the primary: it is the only free model that
+// reliably returns complete sentences on the short CodeMentor replies, and it
+// does not burn the token budget on reasoning output.
+//
+// nvidia/nemotron-3-ultra-550b-a55b:free is the second choice. It is fast
+// (p50 ~4.7s) but frequently truncates mid-sentence, so it is a fallback
+// rather than the primary.
+//
+// kilo-auto/free is the last resort. The router picks a free model itself, so
+// its output quality drifts over time, and it is the slowest of the three.
+//
+// The previous primary, nvidia/nemotron-3-super-120b-a12b:free, now 404s
+// upstream ("Function not found for account"), which is why generation failed
+// outright before this chain existed.
 const MODEL_CONFIG = {
   primary: {
-    name: "experiential-gpt-5.6-luna",
-    endpoint: "https://api.experientiallabs.ai/v1/chat/completions",
-    model: "gpt-5.6-luna",
-    apiKey: "__EXPERIENTIAL_API_KEY__",
+    name: "kilo-poolside-laguna-s-2.1",
+    endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
+    model: "poolside/laguna-s-2.1:free",
+    apiKey: "__KILO_API_KEY__",
     enabled: true,
-    supportsReasoning: true,
-    timeoutMs: 20000
+    timeoutMs: 10000
+  },
+  fallback: {
+    name: "kilo-nemotron-3-ultra",
+    endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
+    model: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    apiKey: "__KILO_API_KEY__",
+    enabled: true,
+    timeoutMs: 10000
+  },
+  lastResort: {
+    name: "kilo-auto-free",
+    endpoint: "https://api.kilo.ai/api/gateway/chat/completions",
+    model: "kilo-auto/free",
+    apiKey: "__KILO_API_KEY__",
+    enabled: true,
+    timeoutMs: 8000
   }
 };
 
@@ -66,11 +104,16 @@ const PLATFORM = {
 };
 
 const STORAGE_KEYS = {
-  RESPONSES: 'responses'
+  RESPONSES: 'responses',
+  CODEMENTOR_ALERT_HISTORY: 'codementorAlertHistory'
 };
 
 const MAX_RESPONSES = 50;
+const MAX_ALERT_HISTORY = 100;
+const ALERT_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEBUG = false;
+
+const notificationUrls = new Map<string, string>();
 
 // ============================================================================
 // LOGGING
@@ -96,27 +139,7 @@ const VOICE_PROFILES = {
     technicalSpecificity: 'high',
     opinionationStrength: 'strong',
     hedgingFrequency: 'very-low',
-    maxLength: 320,
-    discouragedPhrases: [
-      "i'd be happy to help",
-      'great question',
-      'let\'s break this down',
-      'here\'s what i\'d do',
-      'as an experienced',
-      'with my expertise',
-      'i would recommend',
-      'it depends',
-      'generally speaking',
-      'typically',
-      'in most cases',
-      'feel free to reach out',
-      'happy to discuss further',
-      'looking forward to',
-      'i have over',
-      'years of experience',
-      'passionate about',
-      'dedicated professional'
-    ],
+    maxLength: 299,
     signaturePhrases: [
       "i'm a wildcard",
       "i'm fast",
@@ -155,43 +178,6 @@ const VOICE_PROFILES = {
     opinionationStrength: 'strong',
     hedgingFrequency: 'low',
     maxLength: 2200,
-    discouragedPhrases: [
-      "i'd be happy to help",
-      'great question',
-      'let\'s break this down',
-      'here\'s what i\'d do',
-      'as an experienced',
-      'with my expertise',
-      'i would recommend',
-      'it depends',
-      'generally speaking',
-      'typically',
-      'in most cases',
-      'feel free to reach out',
-      'happy to discuss further',
-      'looking forward to',
-      'i have over',
-      'years of experience',
-      'passionate about',
-      'dedicated professional',
-      'to whom it may concern',
-      'dear sir/madam',
-      'i am writing to express',
-      'budget',
-      'rate',
-      'hourly',
-      'fixed price',
-      'cost',
-      'price',
-      'fee',
-      'payment terms',
-      'start within',
-      'available for a call',
-      'timeline',
-      'duration',
-      'deadline',
-      'delivery date'
-    ],
     signaturePhrases: [
       'relevant experience',
       'specific tools',
@@ -237,17 +223,14 @@ function buildGroundingRules(platform: Platform) {
   const profile = VOICE_PROFILES[platform];
   return `
 GROUNDING RULES:
-- Use only facts from the request and the resume context below.
-- Do not invent names, employers, tools, metrics, dates, availability, or prior conversations.
-- Do not claim experience with a tool unless it appears in the resume context or request.
-- Only mention technical details that are directly relevant to the request.
-- Do not list keywords or keyword stuffing; combine relevant details into natural sentences.
-- Write a smooth, readable message that sounds like a person, not a profile summary.
-- Use one main idea and at most two relevant technical details.
-- Prefer flowing sentences over keyword lists, labels, colons, or stacked tool names.
-- Use these phrases only when they genuinely fit the request and sentence; never force or mechanically avoid them.
-- If a detail is missing, omit it instead of guessing.
-- Return only the message the user can send, with no analysis or labels.
+- Respond to what was actually asked, first and directly.
+- Write like a person answering a message, not like a profile or a capability statement.
+- No buzzwords. Do not name employers, clients, or products. Do not quote metrics or percentages.
+- Do not stack technology names together. Mention a tool only when the reply would be wrong or much weaker without it.
+- One main idea, at most one concrete technical detail, written as a normal sentence.
+- No lists, no labels, no headings, no bold. Prose only.
+- If something is missing, leave it out rather than guessing.
+- Return only the message the user can send, with no analysis or preamble.
 - Stay within ${profile.maxLength} characters.`;
 }
 
@@ -258,50 +241,48 @@ const RESUME_CONTEXT = `Your relevant experience:
 - Independent Consultant: enterprise advisory on sovereign cloud, GPU/TPU orchestration, AI adoption/agentic systems, Turbo Quant quantization, client sales calls.
 - AI Integrations Expert at MindsDB: LLM integrations via SQL, model serving frameworks, MCP support for agents, automated fine-tuning pipelines.
 - Technical Lead at eHealth4Everyone: led 6-engineer team, government health data systems across 12 Nigerian states, Gates Foundation platform.
-- Mentored 100+ developers/engineering managers on Codementor on distributed systems and cloud architecture.`;
+- Focus on the requested outcome and explain the concrete approach that will complete the work properly.`;
+
+// Capability-level grounding for short replies. Named employers, product brands,
+// and hard metrics are deliberately absent: naming them reads as keyword
+// stuffing on a 299-character reply. This keeps the model honest about what
+// it can speak to without handing it a list of buzzwords to parrot back.
+const CAPABILITY_CONTEXT = `What you can speak credibly to:
+- Cloud and platform architecture: sovereign and private cloud, GPU compute, LLM serving and routing, orchestration
+- Infrastructure as code and Kubernetes, at production scale
+- Backend engineering in Go and Python
+- High-concurrency request pipelines, caching, and checkout reliability
+- Enterprise and public sector systems, and leading small engineering teams
+- LLM integrations, model serving, and agent tooling
+- Advising clients on cloud strategy and AI adoption
+
+Treat this as background knowledge, not a script. The client cannot see it. Refer to it only when it naturally sharpens your answer, and describe what you did rather than who you did it for.`;
 
 function buildCodeMentorPrompt(vp) {
-  return `You are a senior cloud/platform engineer who mentors on CodeMentor.
+  return `You are a senior cloud/platform engineer who answers messages from clients on CodeMentor.
+
 ${buildGroundingRules(PLATFORM.CODEMENTOR as Platform)}
 
-VOICE & TONE:
-- ${vp.formality}, ${vp.directness} directness, ${vp.warmth} warmth
-- ${vp.humor} humor
-- Use contractions: ${vp.contractions ? 'yes' : 'no'}
-- Technical specificity: ${vp.technicalSpecificity}
-- Opinionated: ${vp.opinionationStrength}
-- Minimal hedging: ${vp.hedgingFrequency}
-- max ${vp.maxParagraphs} paragraphs
-- End with a specific hook only when it fits naturally
+VOICE:
+- ${vp.formality}, ${vp.directness} directness, ${vp.warmth} warmth, ${vp.humor} humor
+- Contractions: ${vp.contractions ? 'yes' : 'no'}
+- Opinionated but not arrogant. Hardly ever hedge.
+- One paragraph, 2 to 3 sentences, ${vp.maxLength} characters maximum.
+- Say what you would actually do first, so the client knows the work is straightforward.
+- Close with a short invitation to talk only if it fits naturally. Never force a call to action.
 
-RESUME CONTEXT - DRAW FROM THIS WHEN RELEVANT:
-- Lead Systems Architect at Fugoku Cloud: sovereign AI cloud on bare-metal OpenStack, GPU/TPU fabric, LLM gateway with LiteLLM/Helicone, SkyPilot orchestration, reduced inference latency from 300ms+ to <50ms, cut tenant costs 65%.
-- Senior Infrastructure Engineer at Inference Cloud: enterprise AI platform, multi-tenant isolation, high-concurrency request pipelines, stakeholder liaison.
-- Senior Engineer at Swell: high-scale enterprise SaaS, Kubernetes, Stripe payment architecture, checkout pipeline resilience, Redis, Vue.js/TypeScript.
-- Independent Consultant: enterprise advisory on sovereign cloud, GPU/TPU orchestration, AI adoption/agentic systems, Turbo Quant quantization, client sales calls.
-- AI Integrations Expert at MindsDB: LLM integrations via SQL, model serving frameworks, MCP support for agents, automated fine-tuning pipelines.
-- Technical Lead at eHealth4Everyone: led 6-engineer team, government health data systems across 12 Nigerian states, Gates Foundation platform.
-- Mentored 100+ developers/engineering managers on Codementor on distributed systems and cloud architecture.
+${CAPABILITY_CONTEXT}
 
-Use the resume as a source of examples, not a checklist. Mention only experience that naturally supports the request. The resume is incomplete, so do not treat an unlisted technology as a lack of ability. Never claim a specific tool or result unless it is in the request or resume.
+Answer the request on its own terms. Lead with the answer, not with yourself. Keep any mention of your experience to one plain sentence, and only when it genuinely helps.
 
-PHRASES TO USE CAREFULLY, ONLY WHEN THEY GENUINELY FIT:
-- Use these phrases only when they genuinely fit the request and sentence; never force or mechanically avoid them.
-${vp.discouragedPhrases.map(p => `- "${p}"`).join('\n')}
-
-YOUR SIGNATURE QUALITIES (use naturally, don't force):
-${vp.signaturePhrases.map(p => `- ${p}`).join('\n')}
-
-YOUR TECHNICAL POSITIONS:
-${Object.entries(vp.opinions).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
-
-RESPONSE PROCESS:
-1. Identify the core problem and constraints
-2. Note what you'd actually do first
-3. Draft in your internal voice
-4. Strip meta-commentary, keep only what you'd type
-5. End with a specific hook for a call
-6. HARD LIMIT: Maximum 320 characters total. Count every character. Trim aggressively.
+HOW TO WRITE:
+1. Read the request and work out what they actually need.
+2. Reply to that, in one or two sentences, like you'd reply to a colleague.
+3. Add at most one concrete detail that shows you know what you're doing.
+4. Reassure them briefly that this is doable, without overselling.
+5. Drop anything that sounds like a pitch, a tagline, or a bullet point.
+6. Read it back. If any sentence would sound odd coming from a real person, cut it.
+7. HARD LIMIT: ${vp.maxLength} characters total. Count every character.
 `;
 }
 
@@ -329,10 +310,6 @@ COPYEDITOR RULES - FOLLOW THESE EXACTLY:
 - VERTICAL SPACING: Insert exactly one full blank line between paragraphs.
 - SENTENCE STRUCTURE: Use short, varied sentences. Avoid long, winding sentences with too many commas.
 - NO MARKDOWN CRUTCHES: No bullets, numbered lists, or excessive bolding. Use clean paragraphs and white space only.
-
-PHRASES TO USE CAREFULLY, ONLY WHEN THEY GENUINELY FIT:
-- Use these phrases only when they genuinely fit the request and sentence; never force or mechanically avoid them.
-${vp.discouragedPhrases.map(p => `- "${p}"`).join('\n')}
 
 NEVER MENTION:
 - Project duration or timeline
@@ -394,12 +371,128 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'clearResponses':
       handleClearResponses(message as ClearResponsesMessage, sendResponse);
       return true;
+    case 'clientResponseDetected':
+      handleClientResponseDetected(message as ClientResponseDetectedMessage, sender, sendResponse);
+      return true;
     default:
       console.warn('[AI Auto Answer] Unhandled message action:', message.action);
       sendResponse({ success: false, error: `Unknown action: ${message.action}` });
       return true;
   }
 });
+
+function isValidCodeMentorUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'www.codementor.io';
+  } catch {
+    return false;
+  }
+}
+
+function trimAlertPreview(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
+}
+
+function getAlertHistory(): Promise<Array<{ key: string; url: string; seenAt: number }>> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ [STORAGE_KEYS.CODEMENTOR_ALERT_HISTORY]: [] }, (data) => {
+      if (chrome.runtime.lastError) {
+        logError('Alert history read failed:', chrome.runtime.lastError.message);
+        resolve([]);
+        return;
+      }
+      const history = data[STORAGE_KEYS.CODEMENTOR_ALERT_HISTORY];
+      resolve(Array.isArray(history) ? history : []);
+    });
+  });
+}
+
+async function rememberAlertKey(messageKey: string, conversationUrl: string): Promise<boolean> {
+  const now = Date.now();
+  const history = (await getAlertHistory())
+    .filter((entry) => entry && typeof entry.key === 'string' && now - entry.seenAt < ALERT_HISTORY_RETENTION_MS);
+  if (history.some((entry) => entry.key === messageKey)) return false;
+
+  history.unshift({ key: messageKey, url: conversationUrl, seenAt: now });
+  const bounded = history.slice(0, MAX_ALERT_HISTORY);
+  await new Promise<void>((resolve) => {
+    chrome.storage.local.set({ [STORAGE_KEYS.CODEMENTOR_ALERT_HISTORY]: bounded }, () => {
+      if (chrome.runtime.lastError) logError('Alert history write failed:', chrome.runtime.lastError.message);
+      resolve();
+    });
+  });
+  return true;
+}
+
+function handleClientResponseDetected(message: ClientResponseDetectedMessage, sender, sendResponse) {
+  const { conversationUrl, messageKey, preview } = message;
+  if (!isValidCodeMentorUrl(conversationUrl) || typeof messageKey !== 'string' || !messageKey.trim() || typeof preview !== 'string' || !preview.trim()) {
+    sendResponse({ success: false, error: 'Invalid CodeMentor response alert' });
+    return;
+  }
+
+  rememberAlertKey(messageKey, conversationUrl)
+    .then((isNew) => {
+      if (!isNew) {
+        sendResponse({ success: true, notified: false });
+        return;
+      }
+
+      const notificationOptions = {
+        type: 'basic' as const,
+        iconUrl: 'icons/icon-128.png',
+        title: 'New CodeMentor client response',
+        message: trimAlertPreview(preview),
+        priority: 2
+      };
+
+      chrome.notifications.create(notificationOptions, (notificationId) => {
+        if (chrome.runtime.lastError || !notificationId) {
+          sendResponse({ success: false, error: chrome.runtime.lastError?.message || 'Notification creation failed' });
+          return;
+        }
+        notificationUrls.set(notificationId, conversationUrl);
+        sendResponse({ success: true, notified: true });
+      });
+    })
+    .catch((error) => sendResponse({ success: false, error: error instanceof Error ? error.message : String(error) }));
+}
+
+function openCodeMentorUrl(url: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ url: 'https://www.codementor.io/*' }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      const matchingTab = tabs.find((tab) => tab.url?.startsWith(url.split('#')[0]));
+      if (matchingTab?.id !== undefined) {
+        chrome.tabs.update(matchingTab.id, { active: true }, () => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve();
+        });
+        return;
+      }
+      chrome.tabs.create({ url }, () => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve();
+      });
+    });
+  });
+}
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  const url = notificationUrls.get(notificationId);
+  if (!url) return;
+  openCodeMentorUrl(url).catch((error) => logError('Could not open CodeMentor response:', error));
+  notificationUrls.delete(notificationId);
+  chrome.notifications.clear(notificationId);
+});
+
+chrome.notifications.onClosed.addListener((notificationId) => notificationUrls.delete(notificationId));
 
 function handleGenerateRequest(message: GetOptionsFromOpenAIMessage, sendResponse) {
   const { txt, platform } = message;
@@ -509,8 +602,14 @@ function handleClearResponses(_message: ClearResponsesMessage, sendResponse) {
 // ============================================================================
 
 function getActiveModels() {
-  return [MODEL_CONFIG.primary].filter((m) => m.enabled && m.apiKey && m.apiKey.length > 20);
+  return [MODEL_CONFIG.primary, MODEL_CONFIG.fallback, MODEL_CONFIG.lastResort]
+    .filter((m) => m && m.enabled && m.apiKey && m.apiKey.length > 20);
 }
+
+// The content script gives up after 30s, so the whole fallback chain has to
+// finish inside that window. Every model in the chain shares one deadline:
+// once it is spent, no further model is attempted.
+const REQUEST_DEADLINE_MS = 28000;
 
 async function callModelWithFallback(txt: string, fewShotMessages: ChatMessage[] | null, platform: Platform, userMessages: ChatMessage[] | null = null): Promise<string> {
   const models = getActiveModels();
@@ -518,11 +617,18 @@ async function callModelWithFallback(txt: string, fewShotMessages: ChatMessage[]
     throw new Error('No models configured with valid API keys');
   }
 
+  const deadline = Date.now() + REQUEST_DEADLINE_MS;
   let lastError: unknown;
+
   for (const model of models) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      console.error('[AI Auto Answer] Deadline exhausted before trying', model.name);
+      break;
+    }
     try {
-      log(`Trying model: ${model.name}`);
-      const result = await callModelWithRetry(model, txt, fewShotMessages, platform, userMessages as ChatMessage[] | undefined);
+      log(`Trying model: ${model.name} (${remaining}ms left)`);
+      const result = await callModelWithRetry(model, txt, fewShotMessages, platform, userMessages as ChatMessage[] | undefined, 1, remaining);
       log(`Success with ${model.name}`);
       return result;
     } catch (error) {
@@ -534,28 +640,41 @@ async function callModelWithFallback(txt: string, fewShotMessages: ChatMessage[]
   throw lastError instanceof Error ? lastError : new Error('All models failed');
 }
 
-async function callModelWithRetry(model: ModelConfig, txt: string, fewShotMessages: ChatMessage[] | null, platform: Platform, userMessages: ChatMessage[] | null = null, attempt = 1): Promise<string> {
-  const maxRetries = 1;
+async function callModelWithRetry(model: ModelConfig, txt: string, fewShotMessages: ChatMessage[] | null, platform: Platform, userMessages: ChatMessage[] | null = null, attempt = 1, budgetMs = REQUEST_DEADLINE_MS): Promise<string> {
+  // Kilo's upstream providers return 503 "Service temporarily overloaded" on a
+  // meaningful fraction of requests, so retry a few times with backoff.
+  // attempt starts at 1, so maxRetries is the total number of tries.
+  const maxRetries = 3;
   const baseDelay = 1000;
 
   try {
-    return await callModel(model, txt, fewShotMessages, platform, userMessages);
+    return await callModel(model, txt, fewShotMessages, platform, userMessages, budgetMs);
   } catch (error) {
     const retryable = isRetryableError(error);
     if (!retryable || attempt >= maxRetries) {
       throw error;
     }
     const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 500;
+    // Only retry when there is still enough budget left to be worth it.
+    if (delay + 2000 >= budgetMs) {
+      throw error;
+    }
     log(`Retry ${attempt}/${maxRetries} in ${delay}ms`);
     await new Promise((resolve) => setTimeout(resolve, delay));
-    return callModelWithRetry(model, txt, fewShotMessages, platform, userMessages, attempt + 1);
+    return callModelWithRetry(model, txt, fewShotMessages, platform, userMessages, attempt + 1, budgetMs - delay);
   }
 }
 
-async function callModel(model, txt, fewShotMessages, platform, userMessages = null) {
+async function callModel(model, txt, fewShotMessages, platform, userMessages = null, budgetMs = REQUEST_DEADLINE_MS) {
   const activePlatform = (platform || PLATFORM.CODEMENTOR) as Platform;
-  const maxTokens = activePlatform === PLATFORM.UPWORK ? 420 : 96;
+  // The token budget has to cover reasoning output as well as the reply.
+  // Reasoning models bill the reasoning tokens against max_tokens, so a tight
+  // budget ends with finish_reason "length" and an empty content field.
+  const maxTokens = activePlatform === PLATFORM.UPWORK ? 4096 : 2048;
 
+  // `stop: null` is rejected by some providers and `reasoning: { enabled: false }`
+  // is ignored by others, so neither is sent. A provider that does not honour
+  // reasoning suppression simply spends the larger budget on reasoning.
   const body = JSON.stringify({
     model: model.model,
     messages: [
@@ -564,13 +683,14 @@ async function callModel(model, txt, fewShotMessages, platform, userMessages = n
     ],
     temperature: 0.45,
     top_p: 0.85,
-    max_tokens: maxTokens,
-    stop: null,
-    ...(model.supportsReasoning && { reasoning: { enabled: false } })
+    max_tokens: maxTokens
   });
 
+  // The per-attempt timeout is the smaller of the model's own limit and what
+  // is left of the shared request budget.
+  const attemptTimeout = Math.max(1000, Math.min(model.timeoutMs, budgetMs));
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), Math.min(model.timeoutMs, 12000));
+  const timeoutId = setTimeout(() => controller.abort(), attemptTimeout);
 
   try {
     const response = await fetch(model.endpoint, {
@@ -591,10 +711,20 @@ async function callModel(model, txt, fewShotMessages, platform, userMessages = n
     }
 
     const data = await response.json();
+
+    // Kilo Gateway returns HTTP 200 with an error body when the upstream
+    // provider is overloaded or rate-limited. Surface the real status code so
+    // isRetryableError can act on it instead of reporting a bogus empty response.
+    if (data.error && !data.choices?.[0]) {
+      const errCode = data.error.code || 'unknown';
+      const errMessage = data.error.message || 'unknown gateway error';
+      throw new Error(`${model.name} API error ${errCode}: ${errMessage}`);
+    }
+
     const content = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || data.content;
 
     if (!content) {
-      throw new Error(`Empty response from ${model.name}`);
+      throw new Error(`${model.name} empty response (HTTP ${response.status})`);
     }
 
     log(`Response from ${model.name}:`, content);
@@ -602,7 +732,7 @@ async function callModel(model, txt, fewShotMessages, platform, userMessages = n
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`${model.name} request timeout (${Math.min(model.timeoutMs, 12000)}ms)`);
+      throw new Error(`${model.name} request timeout (${attemptTimeout}ms)`);
     }
     throw error;
   }
@@ -717,10 +847,16 @@ function appendUpworkCta(text) {
 
 function appendCodeMentorCta(text) {
   const safeText = typeof text === 'string' ? text : '';
-  if (safeText && !safeText.match(/[?]|call|hop|connect|chat|talk|reach out$/i) && !safeText.endsWith('?')) {
-    return safeText + ' Want to talk through it?';
-  }
-  return safeText;
+  if (!safeText) return safeText;
+  if (/\b(call|hop|connect|chat|talk|reach out)\b/i.test(safeText)) return safeText;
+  if (safeText.endsWith('?')) return safeText;
+  // Terminate the existing sentence first. Appending straight onto an unclosed
+  // reply produced run-ons like "...if usage Want to talk through it?", which
+  // then broke sentence detection downstream.
+  const terminated = /[.!?]$/.test(safeText.trim())
+    ? safeText.trim()
+    : safeText.trim() + '.';
+  return terminated + ' Want to talk through it?';
 }
 
 function truncateToLimit(text, limit) {
@@ -738,17 +874,40 @@ function truncateToLimit(text, limit) {
 function truncateCodeMentor(text, limit) {
   const safeText = typeof text === 'string' ? text : '';
   if (safeText.length <= limit) return safeText;
-  const ctaMatch = safeText.match(/(call|hop|connect|chat|talk|reach out|\?)[^.!?]*$/i);
-  const cta = ctaMatch ? ctaMatch[0] : '';
-  const maxBody = Math.max(0, limit - cta.length);
+
+  // Preserve a genuine closing sentence (the CTA) rather than the trailing
+  // question mark alone. Matching on the punctuation character first made the
+  // regex return just "?", which left replies ending in a mid-word fragment
+  // like "...if usage Want?".
+  // Anchor to the last genuine sentence boundary. A naive split on [.!?]
+  // treats decimal points and abbreviations as sentence ends, so require the
+  // boundary to be followed by whitespace or end-of-string.
+  const sentences = safeText.match(/[^.!?]+[.!?]+(?=\s|$)/g) || [];
+  const lastSentence = (sentences[sentences.length - 1] || '').trim();
+  // Only a genuinely short trailing sentence can be a CTA. Without the length
+  // bound, an input with no sentence break makes the "last sentence" the whole
+  // text, which would be preserved intact and defeat truncation entirely. The
+  // bound has to allow a short closing line appended to a full reply, so it
+  // scales with the limit rather than being a small constant.
+  const ctaMax = Math.min(140, Math.floor(limit * 0.4));
+  const hasCta = lastSentence.length <= ctaMax && /\b(call|hop|connect|chat|talk|reach out)\b/i.test(lastSentence);
+  const cta = hasCta ? lastSentence : '';
+  // Reserve the joining space too, otherwise the result lands at limit + 1.
+  const maxBody = Math.max(0, limit - cta.length - (cta ? 1 : 0));
+
   let body = safeText.substring(0, maxBody);
   const lastSentenceEnd = Math.max(
     body.lastIndexOf('.'),
     body.lastIndexOf('!'),
     body.lastIndexOf('?')
   );
-  body = lastSentenceEnd > maxBody * 0.5 ? body.substring(0, lastSentenceEnd + 1) : body.replace(/\s+\S*$/, '');
-  return body + cta;
+  body = lastSentenceEnd >= 0 && lastSentenceEnd > maxBody * 0.5
+    ? body.substring(0, lastSentenceEnd + 1)
+    : body.replace(/\s+\S*$/, '');
+  // Never leave a dangling word or trailing punctuation behind.
+  body = body.replace(/[\s,;:]+$/, '');
+
+  return (body + (cta ? ' ' + cta : '')).trim();
 }
 
 // ============================================================================

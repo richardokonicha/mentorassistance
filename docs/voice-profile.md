@@ -11,15 +11,23 @@
 
 **Request**:
 ```
-[paste mentee's request here]
+We are currently looking for talented engineers to join our team. Your experience looks potentially relevant to what we're building. Would you be open to a quick conversation? We can have a meeting tomorrow. Before this, we'd love to learn more about your background and experience. Could you please share your resume? We are now currently selecting two talented developers from a group of candidates. Before moving to the main interview, we'd like to conduct a short technical evaluation to better understand each candidate's practical skills.
 ```
 
 **Your Response**:
 ```
-[paste your actual sent reply here]
+Hi Zachary,
+
+I would be happy to join the team. Yes let's do it — I am currently available from now throughout the day London time.
+
+I have many years in technology from building fullstack applications, public cloud, ML and AI workflows and integrations. I was part of the founding team at Swell Commerce and Goku Cloud. I am currently contributing to Sig Node on the Kubernetes team in my spare time, and in the past I have contributed to MindsDB, Authentik Security, and Turbo-Quant for Apple Metal support. I am currently exploring public cloud, AI inference and OSS deployments while learning more about private equity and funding.
+
+I think I would be a good addition to the team technically and strategically — I can bring balance to the team and speed. I am an engineer trained to constantly think of new ideas, innovate, and share those ideas. Just let me know a time you're available London time and I will be on call talking about my journey and how I can fit into your team.
+
+That sounds superb — let's do it.
 ```
 
-**Tags**: `[aws, terraform, ci/cd]` (edit as needed)
+**Tags**: `[fullstack, cloud, kubernetes, ai-ml, oss, hiring]`
 
 ---
 

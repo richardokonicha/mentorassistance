@@ -363,10 +363,10 @@ function createRefineChatPanel(requestText) {
     renderChatMessages(card);
 
 input.value = '';
-     const messagesContainer = panel.querySelector('.ai-auto-answer-chat-messages');
-     if (messagesContainer) {
-       messagesContainer.scrollTop = messagesContainer.scrollHeight;
-     }
+    const messagesContainer = panel.querySelector('.ai-auto-answer-chat-messages');
+    if (messagesContainer) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
 
     try {
       const result = await getRefinedProposal(requestText, currentProposal, refinement, history.filter((m) => m !== loadingMsg));
@@ -408,7 +408,9 @@ input.value = '';
       input.disabled = false;
       sendBtn.disabled = false;
       sendBtn.textContent = 'Send';
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
     }
   });
 
@@ -682,7 +684,7 @@ function fillTextArea(text) {
   let field = findTextArea();
 
   if (!field && currentPlatform === PLATFORM.UPWORK) {
-    field = document.querySelector('div[contenteditable="true"]') || document.querySelector('[role="textbox"]');
+    field = findUpworkCoverLetter();
   }
 
   if (!field || !field.tagName) {
@@ -1237,9 +1239,10 @@ function findTextArea() {
 }
 
 function findUpworkCoverLetter(): HTMLElement | null {
-  console.log('[AI Auto Answer] Upwork: scanning for cover letter field...');
+  try {
+    console.log('[AI Auto Answer] Upwork: scanning for cover letter field...');
 
-  const coverLetterArea = document.querySelector('.cover-letter-area');
+    const coverLetterArea = document.querySelector('.cover-letter-area');
   if (coverLetterArea) {
     const textarea = coverLetterArea.querySelector('textarea');
     if (textarea) {
@@ -1323,10 +1326,262 @@ function findUpworkCoverLetter(): HTMLElement | null {
 
   console.warn('[AI Auto Answer] Upwork: no cover letter input found on page');
   return null;
+  } catch (error) {
+    console.error('[AI Auto Answer] Upwork: unexpected error in findUpworkCoverLetter:', error);
+    console.warn('[AI Auto Answer] Upwork: no cover letter input found on page');
+    return null;
+  }
 }
 
 function findSubmitButton() {
   return findFirst(getSelectors('submitButton'), (btn) => !btn.classList.contains('ai-auto-answer-btn'));
+}
+
+// ============================================================================
+// MANUAL MODE
+// ============================================================================
+
+function openManualMode() {
+  if (document.querySelector('.ai-auto-answer-card-manual')) {
+    showToast('Manual Mode is already open');
+    return;
+  }
+
+  const card = createManualModeCard();
+  document.body.appendChild(card);
+  console.log('[AI Auto Answer] Manual Mode card injected');
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'openManualMode') {
+    openManualMode();
+    sendResponse({ success: true });
+    return true;
+  }
+  return false;
+});
+
+let manualModeCard: HTMLElement | null = null;
+let manualModeResult: string | null = null;
+let manualModeRequest: string | null = null;
+let manualModeHistory: Array<{ role: 'user' | 'assistant', content: string }> = [];
+
+function createManualModeCard() {
+  const card = document.createElement('div');
+  card.className = 'ai-auto-answer-card ai-auto-answer-card-manual';
+  card.setAttribute('role', 'region');
+  card.setAttribute('aria-label', 'AI Auto Answer Manual Mode');
+  card.style.width = '520px';
+  card.style.maxWidth = 'calc(100vw - 32px)';
+
+  const header = document.createElement('div');
+  header.className = 'ai-auto-answer-card-header';
+  header.setAttribute('data-drag-handle', 'true');
+
+  const title = document.createElement('span');
+  title.className = 'ai-auto-answer-card-title';
+  title.textContent = 'AI Auto Answer';
+
+  const badge = document.createElement('span');
+  badge.className = 'ai-auto-answer-card-badge';
+  badge.textContent = 'Manual';
+
+  const controls = document.createElement('div');
+  controls.className = 'ai-auto-answer-card-controls';
+
+  const minimizeBtn = document.createElement('button');
+  minimizeBtn.className = 'ai-auto-answer-control-btn';
+  minimizeBtn.textContent = '-';
+  minimizeBtn.setAttribute('aria-label', 'Minimize');
+  minimizeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    card.classList.toggle('minimized');
+  });
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'ai-auto-answer-control-btn';
+  closeBtn.textContent = '×';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    card.remove();
+    manualModeCard = null;
+    manualModeResult = null;
+    manualModeRequest = null;
+    manualModeHistory = [];
+  });
+
+  controls.appendChild(minimizeBtn);
+  controls.appendChild(closeBtn);
+  header.appendChild(title);
+  header.appendChild(badge);
+  header.appendChild(controls);
+  card.appendChild(header);
+
+  const form = document.createElement('div');
+  form.style.display = 'flex';
+  form.style.flexDirection = 'column';
+  form.style.gap = '10px';
+
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.gap = '10px';
+  row.style.alignItems = 'center';
+
+  const platformLabel = document.createElement('label');
+  platformLabel.textContent = 'Style:';
+  platformLabel.style.fontSize = '13px';
+  platformLabel.style.color = '#475569';
+  platformLabel.setAttribute('for', 'manual-platform-select');
+
+  const platformSelect = document.createElement('select');
+  platformSelect.id = 'manual-platform-select';
+  platformSelect.style.padding = '6px 8px';
+  platformSelect.style.border = '1px solid #e2e8f0';
+  platformSelect.style.borderRadius = '6px';
+  platformSelect.style.background = '#fff';
+  platformSelect.style.color = '#0f172a';
+  platformSelect.style.fontSize = '13px';
+
+  const upworkOption = document.createElement('option');
+  upworkOption.value = 'upwork';
+  upworkOption.textContent = 'Upwork proposal';
+  const codeMentorOption = document.createElement('option');
+  codeMentorOption.value = 'codementor';
+  codeMentorOption.textContent = 'CodeMentor answer';
+  platformSelect.appendChild(upworkOption);
+  platformSelect.appendChild(codeMentorOption);
+
+  row.appendChild(platformLabel);
+  row.appendChild(platformSelect);
+
+  const input = document.createElement('textarea');
+  input.className = 'ai-auto-answer-manual-textarea';
+  input.placeholder = 'Paste the job description or request here...';
+  input.rows = 5;
+  input.style.padding = '10px';
+  input.style.border = '1px solid #e2e8f0';
+  input.style.borderRadius = '6px';
+  input.style.fontSize = '13px';
+  input.style.lineHeight = '1.5';
+  input.style.resize = 'vertical';
+  input.style.fontFamily = 'inherit';
+
+  const generateBtn = document.createElement('button');
+  generateBtn.className = 'btn btn-primary';
+  generateBtn.textContent = 'Generate proposal';
+  generateBtn.style.alignSelf = 'flex-end';
+
+  let chatPanel = null;
+  let body = document.createElement('div');
+  body.className = 'ai-auto-answer-card-body';
+  body.style.minHeight = '80px';
+
+  generateBtn.addEventListener('click', async () => {
+    const text = input.value.trim();
+    if (!text) {
+      showToast('Please paste a job description');
+      return;
+    }
+
+    manualModeResult = null;
+    manualModeRequest = null;
+    manualModeHistory = [];
+
+    generateBtn.disabled = true;
+    generateBtn.textContent = 'Generating...';
+    body.textContent = '';
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'getOptionsFromOpenAI',
+        txt: text,
+        platform: platformSelect.value || 'upwork'
+      });
+
+      if (response && response.success && response.data) {
+        manualModeResult = response.data;
+        manualModeRequest = text;
+        manualModeHistory = [];
+        body.textContent = response.data;
+        actionsArea.style.display = 'flex';
+
+        cardHistories.set(card, [
+          { role: 'user', content: text ? 'Manual request' : 'Manual request' },
+          { role: 'assistant', content: response.data }
+        ]);
+
+        if (!chatPanel) {
+          chatPanel = createRefineChatPanel(manualModeRequest);
+          card.appendChild(chatPanel);
+        }
+      } else {
+        body.textContent = response?.error || 'Failed to generate proposal';
+        actionsArea.style.display = 'none';
+      }
+    } catch (err) {
+      body.textContent = 'Unexpected error';
+      actionsArea.style.display = 'none';
+    } finally {
+      generateBtn.disabled = false;
+      generateBtn.textContent = 'Generate proposal';
+    }
+  });
+
+  form.appendChild(row);
+  form.appendChild(input);
+  form.appendChild(generateBtn);
+  card.appendChild(form);
+  card.appendChild(body);
+
+  const actionsArea = document.createElement('div');
+  actionsArea.className = 'ai-auto-answer-card-actions';
+  actionsArea.style.display = 'none';
+
+  const copyBtn = createButton('Copy', () => {
+    if (manualModeResult) {
+      navigator.clipboard.writeText(manualModeResult).then(() => showToast('Copied to clipboard')).catch(() => showToast('Copy failed'));
+    }
+  });
+
+  const saveBtn = createButton('Save', async () => {
+    if (!manualModeResult) return;
+    saveBtn.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'saveResponse',
+        request: manualModeRequest,
+        response: manualModeResult,
+        platform: platformSelect.value || 'upwork'
+      });
+      showToast(response?.success ? 'Saved' : 'Save failed');
+    } catch {
+      showToast('Save failed');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  const refineBtn = createButton('Refine', () => {
+    if (!chatPanel && manualModeRequest) {
+      chatPanel = createRefineChatPanel(manualModeRequest);
+      card.appendChild(chatPanel);
+    }
+    toggleRefineChat(card, manualModeRequest);
+  });
+
+  actionsArea.appendChild(copyBtn);
+  actionsArea.appendChild(saveBtn);
+  actionsArea.appendChild(refineBtn);
+  card.appendChild(actionsArea);
+
+  makeDraggable(card);
+  card.style.left = '32px';
+  card.style.top = '32px';
+
+  return card;
 }
 
 // ============================================================================
@@ -1338,11 +1593,136 @@ let isInitializing = false;
 let lastInitedUrl = location.href;
 let pollHandle = null;
 let pollGeneration = 0;
+let codeMentorResponseObserver: MutationObserver | null = null;
+let codeMentorResponseKeys = new Set<string>();
+let codeMentorResponseBaselineReady = false;
+
+const CODEMENTOR_MESSAGE_SELECTORS = [
+  '[data-message-id]',
+  '[data-testid*="message" i]',
+  '[data-testid*="conversation" i] [class*="message" i]',
+  '[class*="message" i][class*="bubble" i]',
+  '[class*="message-item" i]'
+];
+
+function normalizeAlertText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function getCodeMentorMessageNodes(root: ParentNode = document): HTMLElement[] {
+  const nodes = new Set<HTMLElement>();
+  for (const selector of CODEMENTOR_MESSAGE_SELECTORS) {
+    root.querySelectorAll(selector).forEach((node) => {
+      if (node instanceof HTMLElement) nodes.add(node);
+    });
+  }
+  if (root instanceof HTMLElement && CODEMENTOR_MESSAGE_SELECTORS.some((selector) => root.matches(selector))) {
+    nodes.add(root);
+  }
+  return [...nodes];
+}
+
+function getDirectionValue(message: HTMLElement): string {
+  const values = [
+    message.getAttribute('data-author'),
+    message.getAttribute('data-sender'),
+    message.getAttribute('data-role'),
+    message.getAttribute('data-direction'),
+    message.className
+  ];
+  return values.filter(Boolean).join(' ').toLowerCase();
+}
+
+function isIncomingCodeMentorMessage(message: HTMLElement): boolean {
+  const direction = getDirectionValue(message);
+  if (/\b(client|customer|requester|user|from-client|incoming|received)\b/.test(direction)) return true;
+  if (/\b(mentor|expert|you|self|outgoing|sent|from-me)\b/.test(direction)) return false;
+  return false;
+}
+
+function hasKnownCodeMentorDirection(message: HTMLElement): boolean {
+  const direction = getDirectionValue(message);
+  return /\b(client|customer|requester|user|from-client|incoming|received|mentor|expert|you|self|outgoing|sent|from-me)\b/.test(direction);
+}
+
+function getCodeMentorMessageKey(message: HTMLElement, conversationUrl: string): string | null {
+  const explicitId = message.getAttribute('data-message-id') || message.getAttribute('data-id');
+  if (explicitId?.trim()) return `${conversationUrl}|${explicitId.trim()}`;
+  const text = normalizeAlertText(message.textContent || '');
+  if (!text || !hasKnownCodeMentorDirection(message)) return null;
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return `${conversationUrl}|${getDirectionValue(message)}|${hash}|${text.length}`;
+}
+
+function getCodeMentorMessagePreview(message: HTMLElement): string {
+  const text = normalizeAlertText(message.textContent || '');
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+function sendCodeMentorResponseAlert(message: HTMLElement, messageKey: string) {
+  const preview = getCodeMentorMessagePreview(message);
+  if (!preview) return;
+  chrome.runtime.sendMessage({
+    action: 'clientResponseDetected',
+    conversationUrl: location.href,
+    messageKey,
+    preview
+  }, (response) => {
+    if (chrome.runtime.lastError || response?.success === false) {
+      showToast(`Response alert failed: ${chrome.runtime.lastError?.message || response?.error || 'notification unavailable'}`);
+    }
+  });
+}
+
+function scanCodeMentorMessages(root: ParentNode, notify: boolean) {
+  for (const message of getCodeMentorMessageNodes(root)) {
+    const messageKey = getCodeMentorMessageKey(message, location.href);
+    if (!messageKey || codeMentorResponseKeys.has(messageKey)) continue;
+    codeMentorResponseKeys.add(messageKey);
+    if (notify && isIncomingCodeMentorMessage(message)) {
+      sendCodeMentorResponseAlert(message, messageKey);
+    }
+  }
+}
+
+function handleCodeMentorMutations(mutations: MutationRecord[]) {
+  const addedNodes = mutations.flatMap((mutation) => [...mutation.addedNodes]);
+  for (const node of addedNodes) {
+    if (node instanceof HTMLElement) scanCodeMentorMessages(node, codeMentorResponseBaselineReady);
+  }
+}
+
+function startCodeMentorResponseMonitor(): void {
+  if (codeMentorResponseObserver || !isMatchingCodeMentorPage()) return;
+  codeMentorResponseKeys = new Set<string>();
+  codeMentorResponseBaselineReady = false;
+  scanCodeMentorMessages(document, false);
+
+  const target = document.body || document.documentElement;
+  if (!target) {
+    console.warn('[AI Auto Answer] CodeMentor response monitor waiting for document body');
+    return;
+  }
+  codeMentorResponseObserver = new MutationObserver(handleCodeMentorMutations);
+  codeMentorResponseObserver.observe(target, { childList: true, subtree: true });
+  codeMentorResponseBaselineReady = true;
+}
+
+function stopCodeMentorResponseMonitor(): void {
+  codeMentorResponseObserver?.disconnect();
+  codeMentorResponseObserver = null;
+  codeMentorResponseKeys.clear();
+  codeMentorResponseBaselineReady = false;
+}
 
 function cleanupExtension() {
   document.querySelector('.ai-auto-answer-card')?.remove();
   ensureStyles();
   stopUpworkObserver();
+  stopCodeMentorResponseMonitor();
   if (pollHandle) {
     clearTimeout(pollHandle);
     pollHandle = null;
@@ -1396,6 +1776,8 @@ function initCodeMentor() {
     cleanupExtension();
     return false;
   }
+
+  startCodeMentorResponseMonitor();
 
   const targetButton = findSubmitButton();
   if (!targetButton) {
@@ -1476,17 +1858,18 @@ function stopCoverLetterAnimation() {
 }
 
 function initUpwork() {
-  if (!isMatchingUpworkPage()) {
-    cleanupExtension();
-    return false;
-  }
+  try {
+    if (!isMatchingUpworkPage()) {
+      cleanupExtension();
+      return false;
+    }
 
-  const textArea = findUpworkCoverLetter();
-  if (!textArea) {
-    console.warn('[AI Auto Answer] Could not find cover letter textarea, retrying...');
-    startUpworkObserver();
-    return false;
-  }
+    const textArea = findUpworkCoverLetter();
+    if (!textArea) {
+      console.warn('[AI Auto Answer] Could not find cover letter textarea, retrying...');
+      startUpworkObserver();
+      return false;
+    }
 
   stopUpworkObserver();
   startCoverLetterAnimation(textArea);
@@ -1511,6 +1894,10 @@ function initUpwork() {
     isInitializing = false;
     stopCoverLetterAnimation();
   });
+  } catch (error) {
+    console.error('[AI Auto Answer] initUpwork failed:', error);
+    return false;
+  }
 }
 
 async function startPolling(maxAttempts = 100) {

@@ -26,13 +26,21 @@ Chrome extension that generates personalized responses for CodeMentor and Upwork
 - **Resume context** — draws from your professional background when relevant to the request
 - **Voice enforcement** — strips AI-ish phrases, enforces tone, respects character limits
 - **SPA support** — detects navigation on Upwork's React SPA and re-initializes or cleans up automatically
-- **Direct model access** — Experiential Labs GPT-5.6 Luna without a slower model router
+- **Free-tier model access** — Poolside Laguna S 2.1 via the Kilo Gateway, no API cost
 - **Platform-gated loading** — only active on matching proposal URLs; fully cleans up when you leave
+- **CodeMentor response alerts** — watches an open authenticated CodeMentor conversation and sends one desktop notification when a new incoming client message appears
 
 ## Architecture
 
-**Single direct provider:**
-1. **Experiential Labs:** GPT-5.6 Luna through its OpenAI-compatible API
+**Provider:** the Kilo Gateway's OpenAI-compatible chat completions API, with an ordered fallback chain:
+
+1. **Primary:** `poolside/laguna-s-2.1:free`. The only free model that reliably returns complete sentences on short CodeMentor replies. p50 ~5.4s, p90 ~7.5s.
+2. **Fallback:** `nvidia/nemotron-3-ultra-550b-a55b:free`. Fast (~4.7s p50) but often truncates mid-sentence.
+3. **Last resort:** `kilo-auto/free`. The gateway picks the model itself, so its quality drifts over time.
+
+The whole chain shares a 28s deadline so it always finishes inside the content script's 30s window.
+
+> The token budget must cover reasoning output, not just the reply. Reasoning models bill their reasoning tokens against `max_tokens`, so a tight budget ends the response with `finish_reason: "length"` and an empty content field. The request therefore sends a 2048/4096 token budget and no `stop` or `reasoning` parameters.
 
 **Voice profiles per platform:**
 - Each platform has its own `VOICE_PROFILES` entry with formality, directness, banned phrases, signature phrases, and technical opinions
@@ -48,7 +56,9 @@ npm run typecheck    # check types without emitting
 npm test             # run quality benchmark
 ```
 
-The build compiles `.ts` sources to `dist/`, injects `EXPERIENTIAL_API_KEY` and optional Gemini embedding keys from `.env.local`, and strips module noise. Load the extension folder as an unpacked extension in Chrome.
+The build compiles `.ts` sources to `dist/`, injects `KILO_API_KEY` and optional Gemini embedding keys from `.env.local`, and strips module noise. Load the extension folder as an unpacked extension in Chrome.
+
+> The Kilo gateway reports upstream overload as an HTTP 200 with an `error` body rather than a 5xx status. `callModel` checks `data.error` before reading content so that condition is classified as retryable instead of surfacing as an empty response.
 
 ## Project Structure
 
@@ -71,5 +81,7 @@ The build compiles `.ts` sources to `dist/`, injects `EXPERIENTIAL_API_KEY` and 
 ## Configuration
 
 API keys are stored in `.env.local` and injected at build time. To update them, edit `.env.local` and run `npm run build`.
+
+CodeMentor response alerts require an authenticated CodeMentor tab to remain open while you are available. Enable Chrome and macOS notifications, including sound, for the alert to be delivered. This version does not monitor CodeMentor while Chrome is fully closed.
 
 Voice profiles are defined in `background.ts` under `VOICE_PROFILES`. Adjust tone, banned phrases, signature phrases, and technical opinions there.

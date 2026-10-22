@@ -1,33 +1,62 @@
 #!/usr/bin/env node
 /**
  * AI Auto Answer - Benchmark & Quality Evaluation
- * Tests model outputs against voice profile and constraints
+ *
+ * This benchmark drives the production code path. It loads the built
+ * dist/background.js and calls callModelWithFallback directly, so the prompt,
+ * the request body, the fallback chain, and the output shaping are all the
+ * ones that ship. An earlier version of this file kept its own copy of the
+ * system prompt and its own copy of the shaping rules, which meant it scored
+ * a prompt the extension no longer uses.
+ *
+ * The scoring below matches what the production prompt actually asks for.
+ * The old score rewarded signature phrases and a call to action on every
+ * reply, but the shipped prompt deliberately says "Never force a call to
+ * action" and no longer injects signature phrases, so rewarding them
+ * penalised correct output.
  */
+const fs = require('fs');
+const vm = require('vm');
+const assert = require('assert');
 
-const fetch = global.fetch;
+const fetchImpl = global.fetch;
+const ROOT = __dirname + '/';
 
-function loadEnvFile(path) {
-  try {
-    const fs = require('fs');
-    const content = fs.readFileSync(path, 'utf8');
-    const lines = content.split(/\r?\n/);
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq > 0) {
-        const key = trimmed.slice(0, eq).trim();
-        const value = trimmed.slice(eq + 1).trim();
-        if (key && !(key in process.env)) {
-          process.env[key] = value;
-        }
-      }
-    }
-  } catch {}
+// ============================================================================
+// PRODUCTION CODE
+// ============================================================================
+
+const noop = { addListener: () => {}, removeListener: () => {}, hasListener: () => false };
+const sandbox = {
+  console, setTimeout, clearTimeout, setInterval, clearInterval,
+  chrome: {
+    runtime: { onMessage: noop, onConnect: noop, onInstalled: noop, onStartup: noop, sendMessage: () => {}, lastError: null, getURL: p => p, id: 'bench' },
+    storage: { local: { get: () => {}, set: () => {}, remove: () => {} }, onChanged: noop, onRemoved: noop },
+    tabs: { query: () => [], create: () => {}, onUpdated: noop, onRemoved: noop, sendMessage: () => {} },
+    notifications: { create: () => {}, getPermissionLevel: () => {}, onClicked: noop, onButtonClicked: noop, onClosed: noop, onPermissionLevelChanged: noop }
+  },
+  fetch: (...args) => fetchImpl(...args),
+  AbortController, URL, Promise, Math, Date, JSON
+};
+sandbox.globalThis = sandbox; sandbox.self = sandbox;
+vm.createContext(sandbox);
+
+const distPath = ROOT + 'dist/background.js';
+if (!fs.existsSync(distPath)) {
+  console.error('dist/background.js not found. Run `npm run build` first.');
+  process.exit(1);
 }
+vm.runInContext(
+  fs.readFileSync(distPath, 'utf8') +
+  '\n;globalThis.__call=callModelWithFallback;globalThis.__cfg=MODEL_CONFIG;globalThis.__pp=PLATFORM;',
+  sandbox
+);
 
-loadEnvFile('.env.local');
-loadEnvFile('.env');
+const callProduction = sandbox.__call;
+const MODEL_CONFIG = sandbox.__cfg;
+const PLATFORM = sandbox.__pp;
+
+assert.ok(typeof callProduction === 'function', 'callModelWithFallback not found in dist bundle');
 
 // ============================================================================
 // TEST CASES - Real CodeMentor requests
@@ -36,364 +65,93 @@ loadEnvFile('.env');
 const TEST_CASES = [
   {
     name: "LLM Gateway Router",
-    request: `Application for AI LLM Gateway Router Project. Need someone with LiteLLM, Portkey experience. Mechanical engineering listed but strange for this role.`,
-    expectedVoice: ["hey", "lme", "portkey", "agentic", "call", "cheers"],
-    bannedPhrases: ["happy to help", "great question", "let me break", "i would recommend"]
+    request: `Application for AI LLM Gateway Router Project. Need someone with LiteLLM, Portkey experience. Mechanical engineering listed but strange for this role.`
   },
   {
     name: "n8n WhatsApp Quote System",
-    request: `Need n8n automation for WhatsApp quote system. 600+ daily quotes, PHP POS API, GoHighLevel approval flow.`,
-    expectedVoice: ["n8n", "whatsapp", "gpt-4o", "redis", "call", "cheers"],
-    bannedPhrases: ["happy to help", "great question", "let me break", "i would recommend"]
+    request: `Need n8n automation for WhatsApp quote system. 600+ daily quotes, PHP POS API, GoHighLevel approval flow.`
   },
   {
     name: "Leaseweb Team Application",
-    request: `Looking to join Leaseweb's elite team. Interviewed before, inspired by Richard's impact.`,
-    expectedVoice: ["richard", "interviewed", "team", "call", "cheers"],
-    bannedPhrases: ["happy to help", "great question", "let me break", "i would recommend"]
+    request: `Looking to join Leaseweb's elite team. Interviewed before, inspired by Richard's impact.`
   },
   {
     name: "Solution Engineer AI/Cloud",
-    request: `Solution engineers needed for AI and public cloud infrastructure roles.`,
-    expectedVoice: ["solutions engineer", "ai", "cloud", "call", "connect"],
-    bannedPhrases: ["happy to help", "great question", "let me break", "i would recommend"]
+    request: `Solution engineers needed for AI and public cloud infrastructure roles.`
   },
   {
     name: "Terraform AWS Migration",
-    request: `Need help migrating legacy infra to Terraform on AWS. Current state is messy CloudFormation.`,
-    expectedVoice: ["terraform", "aws", "cloudformation", "modules", "call"],
-    bannedPhrases: ["happy to help", "great question", "let me break", "i would recommend"]
+    request: `Need help migrating legacy infra to Terraform on AWS. Current state is messy CloudFormation.`
   },
   {
     name: "Kubernetes Scaling Issues",
-    request: `EKS cluster scaling problems during traffic spikes. HPA not working properly.`,
-    expectedVoice: ["eks", "hpa", "scaling", "control plane", "call"],
-    bannedPhrases: ["happy to help", "great question", "let me break", "i would recommend"]
+    request: `EKS cluster scaling problems during traffic spikes. HPA not working properly.`
   }
 ];
 
 // ============================================================================
-// VOICE PROFILE (from background.js)
+// SCORING
 // ============================================================================
 
-const VOICE_PROFILE = {
-  discouragedPhrases: [
-    "i'd be happy to help",
-    "great question",
-    "let me break this down",
-    "here's what i'd do",
-    "as an experienced",
-    "with my expertise",
-    "i would recommend",
-    "it depends",
-    "generally speaking",
-    "typically",
-    "in most cases",
-    "feel free to reach out",
-    "happy to discuss further",
-    "looking forward to",
-    "i have over",
-    "years of experience",
-    "passionate about",
-    "dedicated professional"
-  ],
-  signaturePhrases: [
-    "i'm a wildcard",
-    "i'm fast",
-    "let's work together",
-    "hop on a call",
-    "cheers",
-    "i've been there",
-    "i can bring value",
-    "partner and teammate",
-    "ready to start",
-    "available immediately"
-  ],
-  opinions: {
-    cloud: "aws for most, gcp if data-heavy, avoid azure unless forced",
-    iac: "terraform > pulumi > cloudformation. modules non-negotiable",
-    k8s: "don't run your own control plane. eks/gke/aks or nothing",
-    ci: "github actions for simplicity, gitlab if you need the platform",
-    databases: "postgres for almost everything. redis for cache. specialist dbs only when proven needed",
-    architecture: "start monolith. extract services when pain is real, not imagined",
-    llm_routers: "litellm, portkey, agentic foundation - know the tradeoffs",
-    n8n: "early adopter. whatsapp/telegram integrations. mcp via agents now",
-    apis: "rest + swagger/openapi. jwt auth. docker + k8s deployment",
-    hiring: "don't list mechanical engineering for ai gateway roles"
-  }
-};
+// Phrases that read as machine-written rather than human-written.
+const AIISH = [
+  'leverage', 'utilize', "in today's fast-paced", 'delve', "it's important to note",
+  'furthermore', 'moreover', 'in conclusion', 'game-changer', 'seamless', 'robust solution',
+  'tailor-made', 'cutting-edge', 'best practices', 'world-class', 'synergy', 'holistic',
+  'thrilled', 'passionate about', 'i would be delighted', 'make sure to', 'feel free to',
+  'i believe that', 'it is important'
+];
 
-// ============================================================================
-// EVALUATION FUNCTIONS
-// ============================================================================
+// Telling the applicant what to write instead of writing it. The production
+// prompt asks for the message itself, not coaching.
+const META_ADVICE = /\b(apply|highlight|make sure|ensure that|consider|use the following|the applicant|your answer|you should (write|mention|highlight)|ask for|write a)\b/i;
 
-function countChars(str) {
-  return str.length;
-}
-
-function countWords(str) {
-  return str.trim().split(/\s+/).filter(w => w.length > 0).length;
-}
+// The production prompt says to name no employers, brands, or metrics.
+const INVENTED_FACT = /\b\d+%|\b\d+ms\b|\b\d+ years\b|\bFugoku\b|\bMindsDB\b|\bSwell\b|\bHelicone\b|\bSkyPilot\b|\bStripe\b|\bGates Foundation\b/i;
 
 function countSentences(str) {
   return str.split(/[.!?]+/).filter(s => s.trim().length > 0).length;
 }
 
-function hasCallToAction(str) {
-  return /[?]|call|hop|connect|chat|talk|reach out$/i.test(str.trim());
-}
-
-function checkBannedPhrases(str) {
-  const lower = str.toLowerCase();
-  return VOICE_PROFILE.discouragedPhrases.filter(phrase => lower.includes(phrase.toLowerCase()));
-}
-
-function checkSignaturePhrases(str) {
-  const lower = str.toLowerCase();
-  return VOICE_PROFILE.signaturePhrases.filter(phrase => lower.includes(phrase.toLowerCase()));
-}
-
-function checkOpinions(str) {
-  const lower = str.toLowerCase();
-  const found = [];
-  for (const [topic, opinion] of Object.entries(VOICE_PROFILE.opinions)) {
-    if (lower.includes(topic.toLowerCase()) || opinion.toLowerCase().split(' ').some(w => w.length > 3 && lower.includes(w))) {
-      found.push(topic);
-    }
-  }
-  return found;
-}
-
 function evaluateResponse(testCase, response) {
-  const charCount = countChars(response);
-  const wordCount = countWords(response);
-  const sentenceCount = countSentences(response);
-  const hasCTA = hasCallToAction(response);
-  const bannedFound = checkBannedPhrases(response);
-  const signaturesFound = checkSignaturePhrases(response);
-  const opinionsFound = checkOpinions(response);
-  
-  // Expected voice keywords present
-  const expectedFound = testCase.expectedVoice.filter(v => 
-    response.toLowerCase().includes(v.toLowerCase())
-  );
-  
-  // Score components (0-100 each)
-  const lengthScore = charCount <= 300 ? 100 : Math.max(0, 100 - (charCount - 300) * 2);
-  const ctaScore = hasCTA ? 100 : 0;
-  const bannedScore = bannedFound.length === 0 ? 100 : Math.max(0, 100 - bannedFound.length * 25);
-  const signatureScore = Math.min(100, signaturesFound.length * 20);
-  const opinionScore = Math.min(100, opinionsFound.length * 15);
-  const expectedScore = expectedFound.length > 0 ? Math.min(100, (expectedFound.length / testCase.expectedVoice.length) * 100) : 50;
-  
-  const overallScore = Math.round(
-    lengthScore * 0.25 +
-    ctaScore * 0.20 +
-    bannedScore * 0.20 +
-    signatureScore * 0.15 +
-    opinionScore * 0.10 +
-    expectedScore * 0.10
-  );
-  
+  const lower = response.toLowerCase();
+  const problems = [];
+
+  const lengthScore = response.length <= 299 ? 100 : Math.max(0, 100 - (response.length - 299) * 2);
+  if (response.length > 299) problems.push(`over limit (${response.length})`);
+
+  const aiHits = AIISH.filter(p => lower.includes(p));
+  if (aiHits.length) problems.push(`ai-ish: ${aiHits.join(', ')}`);
+
+  if (META_ADVICE.test(response)) problems.push('gives advice instead of the message');
+  if (INVENTED_FACT.test(response)) problems.push('invents a brand, metric, or timeline');
+  if (/as an ai|as a language model/i.test(response)) problems.push('mentions being an AI');
+  if (/^```|^\*\*|^#{1,6}\s|^[-*]\s/m.test(response)) problems.push('contains markdown');
+
+  // A reply that stops mid-sentence is the failure mode the fallback chain
+  // exists to avoid, so an unterminated reply is a hard failure.
+  const terminated = /[.!?]\s*$/.test(response.trim());
+  if (!terminated) problems.push('does not end on a complete sentence');
+
+  const sentences = countSentences(response);
+  if (sentences < 1) problems.push('no sentences');
+  if (sentences > 5) problems.push(`too many sentences (${sentences})`);
+
+  if (response.trim().length < 60) problems.push('too short to be useful');
+
+  // Stacked tool names read as keyword stuffing.
+  const techStacks = (response.match(/\b(Terraform|Kubernetes|EKS|HPA|n8n|LiteLLM|Portkey|AWS|CloudFormation|GoHighLevel|POS API|Redis|Docker|GraphQL|REST|Kafka)\b/g) || []).length;
+  if (techStacks > 6) problems.push(`stacks ${techStacks} technology names`);
+
+  const score = Math.max(0, 100 - problems.length * 15);
+
   return {
-    charCount,
-    wordCount,
-    sentenceCount,
-    hasCTA,
-    bannedFound,
-    signaturesFound,
-    opinionsFound,
-    expectedFound,
-    scores: {
-      length: lengthScore,
-      cta: ctaScore,
-      banned: bannedScore,
-      signature: signatureScore,
-      opinion: opinionScore,
-      expected: expectedScore,
-      overall: overallScore
-    }
+    charCount: response.length,
+    sentenceCount: sentences,
+    problems,
+    scores: { overall: score }
   };
 }
-
-// ============================================================================
-// API CALL
-// ============================================================================
-
-async function callModel(modelConfig, txt, fewShotMessages = []) {
-  const body = JSON.stringify({
-    model: modelConfig.model,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      ...fewShotMessages,
-      { role: "user", content: txt }
-    ],
-    temperature: 0.45,
-    top_p: 0.85,
-    max_tokens: 160,
-    stop: null,
-    ...(modelConfig.supportsReasoning && { reasoning: { enabled: false } })
-  });
-
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${modelConfig.apiKey}`
-  };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), modelConfig.timeoutMs);
-
-  try {
-    const response = await fetch(modelConfig.endpoint, {
-      method: "POST",
-      headers,
-      body,
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`${modelConfig.name} API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    let content;
-    if (data.choices && data.choices[0]) {
-      content = data.choices[0].message?.content || data.choices[0].text;
-    } else if (data.content) {
-      content = data.content;
-    } else {
-      throw new Error(`Unexpected response format from ${modelConfig.name}`);
-    }
-
-    if (!content) {
-      throw new Error(`Empty response from ${modelConfig.name}`);
-    }
-
-    return content.trim();
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      throw new Error(`${modelConfig.name} request timeout (${Math.min(modelConfig.timeoutMs, 12000)}ms)`);
-    }
-    throw error;
-  }
-}
-
-function enforceVoiceRules(content) {
-  let cleaned = content;
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  
-  if (cleaned && !cleaned.match(/[?]|call|hop|connect|chat|talk|reach out$/i)) {
-    if (!cleaned.endsWith('?')) {
-      cleaned += ' Want to talk through it?';
-    }
-  }
-  
-  // HARD LIMIT: Truncate to 300 chars, preserving CTA and complete sentences
-  if (cleaned.length > 300) {
-    const ctaMatch = cleaned.match(/(call|hop|connect|chat|talk|reach out|\?)[^.!?]*$/i);
-    const cta = ctaMatch ? ctaMatch[0] : '';
-    const maxBody = 300 - cta.length;
-    let body = cleaned.substring(0, maxBody);
-    
-    // Find last complete sentence (ending with . ! or ?)
-    const lastSentenceEnd = Math.max(
-      body.lastIndexOf('.'),
-      body.lastIndexOf('!'),
-      body.lastIndexOf('?')
-    );
-    
-    if (lastSentenceEnd > maxBody * 0.5) {
-      // Found a reasonable sentence boundary, cut there
-      body = body.substring(0, lastSentenceEnd + 1);
-    } else {
-      // No good sentence boundary, cut at last word
-      body = body.replace(/\s+\S*$/, '');
-    }
-    
-    cleaned = body + cta;
-  }
-  
-  return cleaned;
-}
-
-function buildSystemPrompt() {
-  const vp = VOICE_PROFILE;
-  return `You are a senior cloud/platform engineer who mentors on CodeMentor.
-
-VOICE & TONE:
-- ${vp.formality}, ${vp.directness} directness, ${vp.warmth} warmth
-- ${vp.humor} humor
-- Use contractions: ${vp.contractions ? 'yes' : 'no'}
-- Technical specificity: ${vp.technicalSpecificity}
-- Opinionated: ${vp.opinionationStrength}
-- Minimal hedging: ${vp.hedgingFrequency}
-- ~${vp.avgSentences} sentences, max ${vp.maxParagraphs} paragraphs
-- Lists: ${vp.useLists ? 'when helpful' : 'avoid'}
-- End with a specific hook for a call
-
-PHRASES TO USE CAREFULLY, ONLY WHEN THEY GENUINELY FIT:
-${vp.discouragedPhrases.map(p => `- "${p}"`).join('\n')}
-
-YOUR SIGNATURE MOVES:
-${vp.signaturePhrases.map(p => `- "${p}"`).join('\n')}
-
-YOUR TECHNICAL OPINIONS:
-${Object.entries(vp.opinions).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
-
-RESPONSE PROCESS:
-1. Identify the core problem and constraints
-2. Note what you'd actually do first
-3. Draft in your internal voice
-4. Strip meta-commentary, keep only what you'd type
-5. End with a specific hook for a call
-
---- FEW-SHOT EXAMPLES ---
-Example 1:
-User: "Application for AI LLM Gateway Router Project. Need someone with LiteLLM, Portkey experience. Mechanical engineering listed but strange for this role."
-You: "hey James, your project makes total sense - LLM gateway router is the right positioning. I've worked with LiteLLM, Portkey, and the agentic foundation router. The mechanical engineering requirement is weird for this role, but coincidentally I have a BS in MechE and grad in CompE. I can jump in fast and be a real partner/teammate. Let's hop on a call - I'm ready to start. cheers"
-
-Example 2:
-User: "Need n8n automation for WhatsApp quote system. 600+ daily quotes, PHP POS API, GoHighLevel approval."
-You: "hey, I've been using n8n since pre-COVID discord days - built Telegram signal forwarding, now doing complex AI workflows with MCP via agents. For 600 quotes/day: n8n WhatsApp Business API for intake, GPT-4o for parsing, GoHighLevel webhook for approval, PHP POS bearer token for inventory/pricing, GPT-4o-mini for quote generation, WhatsApp/IG templates for delivery. Redis caching for inventory lookups, parallel execution for peak days. Available immediately - when can we hop on a call?"
-
-Example 3:
-User: "Looking to join Leaseweb's elite team. Interviewed before, inspired by Richard's impact."
-You: "Richard, I've interviewed at Leaseweb before and still want in. Your experience is inspiring, plus we share the name - that's a sign. I bring industry knowledge, speed, charisma, and strong customer relations. Would love to be on your team and your mentee if you're open to it. cheers and happy new month"
-
-Example 4:
-User: "Solution engineers needed for AI/public cloud infrastructure."
-You: "Hi Alexander, you're in luck - I'm a solutions engineer in AI and public cloud infra. Was fullstack before AI. Have all the cutting-edge tools for this. Let's connect."`;
-}
-
-const SYSTEM_PROMPT = `${buildSystemPrompt()}
-
-GROUNDING RULES:
-- Use only facts from the request and verified resume context.
-- Do not invent names, employers, tools, metrics, dates, availability, or prior conversations.
-- Omit missing details instead of guessing.
-- Use one main idea and at most two relevant technical details.
-- Prefer smooth sentences over keyword lists or stacked tool names.
-- Return only the sendable message.`;
-
-// ============================================================================
-// MODEL CONFIGS
-// ============================================================================
-
-const MODELS = [
-  {
-    name: "experiential-gpt-5.6-luna",
-    endpoint: "https://api.experientiallabs.ai/v1/chat/completions",
-    model: "gpt-5.6-luna",
-    apiKey: process.env.EXPERIENTIAL_API_KEY || "",
-    enabled: true,
-    supportsReasoning: true,
-    timeoutMs: 20000
-  }
-];
 
 // ============================================================================
 // RUN BENCHMARK
@@ -404,98 +162,73 @@ async function runBenchmark() {
   console.log("AI AUTO ANSWER - QUALITY BENCHMARK");
   console.log("=".repeat(70));
   console.log(`Test cases: ${TEST_CASES.length}`);
-  console.log(`Models: ${MODELS.filter(m => m.enabled).map(m => m.name).join(", ")}`);
-  console.log(`Max chars: 300`);
+  console.log(`Primary: ${MODEL_CONFIG.primary.model}`);
+  console.log(`Fallbacks: ${[MODEL_CONFIG.fallback.model, MODEL_CONFIG.lastResort.model].join(', ')}`);
   console.log("=".repeat(70));
-  
+
   const results = [];
-  const activeModels = MODELS.filter(m => m.enabled && m.apiKey && m.apiKey.length > 20);
-  if (activeModels.length === 0) {
-    console.log('No Experiential Labs API key configured; skipping live benchmark.');
-    return;
-  }
-  
-  for (const model of activeModels) {
-    console.log(`\n📊 Testing ${model.name}...\n`);
-    
-    for (const testCase of TEST_CASES) {
-      try {
-        console.log(`  → ${testCase.name}...`);
-        
-        // Call model
-        const rawResponse = await callModel(model, testCase.request, []);
-        const processedResponse = enforceVoiceRules(rawResponse);
-        
-        // Evaluate
-        const evalResult = evaluateResponse(testCase, processedResponse);
-        
-        const result = {
-          model: model.name,
-          testCase: testCase.name,
-          rawResponse,
-          processedResponse,
-          ...evalResult
-        };
-        
-        results.push(result);
-        
-        // Print summary
-        const status = evalResult.scores.overall >= 70 ? "✅" : evalResult.scores.overall >= 50 ? "⚠️" : "❌";
-        console.log(`    ${status} Score: ${evalResult.scores.overall}/100 | ${evalResult.charCount} chars | ${evalResult.sentenceCount} sent | CTA: ${evalResult.hasCTA ? "✓" : "✗"} | Banned: ${evalResult.bannedFound.length} | Sig: ${evalResult.signaturesFound.length}`);
-        
-        if (evalResult.bannedFound.length > 0) {
-          console.log(`      ⚠ Banned: ${evalResult.bannedFound.join(", ")}`);
-        }
-        if (evalResult.signaturesFound.length > 0) {
-          console.log(`      ✓ Signatures: ${evalResult.signaturesFound.join(", ")}`);
-        }
-        
-      } catch (error) {
-        console.log(`    ❌ Error: ${error.message}`);
-        results.push({
-          model: model.name,
-          testCase: testCase.name,
-          error: error.message
-        });
+
+  for (const testCase of TEST_CASES) {
+    const started = Date.now();
+    try {
+      console.log(`  → ${testCase.name}...`);
+      const response = await callProduction(testCase.request, [], PLATFORM.CODEMENTOR);
+      const elapsed = Date.now() - started;
+      const evalResult = evaluateResponse(testCase, response);
+
+      const result = {
+        testCase: testCase.name,
+        request: testCase.request,
+        response,
+        elapsedMs: elapsed,
+        ...evalResult
+      };
+      results.push(result);
+
+      const status = evalResult.problems.length === 0 ? "✅" : evalResult.scores.overall >= 70 ? "⚠️" : "❌";
+      console.log(`    ${status} ${evalResult.scores.overall}/100 | ${evalResult.charCount} chars | ${evalResult.sentenceCount} sent | ${elapsed}ms`);
+      if (evalResult.problems.length) {
+        console.log(`      problems: ${evalResult.problems.join('; ')}`);
       }
-      
-      // Small delay between requests
-      await new Promise(r => setTimeout(r, 500));
+      console.log(`      "${response}"`);
+    } catch (error) {
+      console.log(`    ❌ Error: ${error.message}`);
+      results.push({ testCase: testCase.name, request: testCase.request, error: error.message });
     }
+
+    await new Promise(r => setTimeout(r, 500));
   }
-  
-  // Summary
+
+  // ======================================================================
+  // SUMMARY
+  // ======================================================================
+
   console.log("\n" + "=".repeat(70));
   console.log("SUMMARY");
   console.log("=".repeat(70));
-  
-  const byModel = {};
-  for (const r of results) {
-    if (!byModel[r.model]) byModel[r.model] = [];
-    if (r.scores) byModel[r.model].push(r.scores.overall);
+
+  const scored = results.filter(r => r.scores);
+  const errors = results.filter(r => r.error);
+  const avg = scored.length ? scored.reduce((a, r) => a + r.scores.overall, 0) / scored.length : 0;
+  const clean = scored.filter(r => r.problems.length === 0).length;
+  const times = results.filter(r => r.elapsedMs).map(r => r.elapsedMs);
+
+  console.log(`avg score: ${avg.toFixed(1)} | clean: ${clean}/${scored.length} | errors: ${errors.length}`);
+  if (times.length) {
+    const sorted = [...times].sort((a, b) => a - b);
+    console.log(`latency: p50 ${sorted[Math.floor(sorted.length / 2)]}ms, max ${sorted[sorted.length - 1]}ms, over 30s: ${times.filter(t => t > 30000).length}`);
   }
-  
-  for (const [model, scores] of Object.entries(byModel)) {
-    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-    const pass = scores.filter(s => s >= 70).length;
-    console.log(`${model}: avg ${avg.toFixed(1)}, pass (>=70): ${pass}/${scores.length}`);
-  }
-  
-  // Character count distribution
-  const charCounts = results.filter(r => r.charCount).map(r => r.charCount);
-  if (charCounts.length > 0) {
+
+  const charCounts = scored.map(r => r.charCount);
+  if (charCounts.length) {
     const avgChars = charCounts.reduce((a, b) => a + b, 0) / charCounts.length;
-    const overLimit = charCounts.filter(c => c > 300).length;
-    console.log(`\nChar count: avg ${avgChars.toFixed(0)}, over 300: ${overLimit}/${charCounts.length}`);
+    console.log(`char count: avg ${avgChars.toFixed(0)}, over 299: ${charCounts.filter(c => c > 299).length}/${charCounts.length}`);
   }
-  
-  // Save detailed results
-  const fs = require('fs');
-  fs.writeFileSync('benchmark_results.json', JSON.stringify(results, null, 2));
+
+  fs.writeFileSync(ROOT + 'benchmark_results.json', JSON.stringify(results, null, 2));
   console.log("\n📄 Detailed results saved to benchmark_results.json");
-  
+
   return results;
 }
 
-// Run
 runBenchmark().catch(console.error);
