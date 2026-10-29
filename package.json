@@ -4,11 +4,11 @@
   "description": "A Chrome extension that generates personalized mentor responses for CodeMentor using AI. The responses sound like your actual voice \u2014 casual, direct, opinionated, with specific technical opinions and signature phrases.",
   "main": "background.js",
   "scripts": {
-    "build": "node api.js && npm run build:all",
-    "build:watch": "tsc --watch",
-    "build:env": "tsx build.ts",
-    "build:all": "npm run build:tsc && npm run build:env",
-    "build:tsc": "tsc",
+    "build": "node init && npm run build:all",
+    "build:watch": "node init && tsc --watch",
+    "build:env": "node init && tsx build.ts",
+    "build:all": "node init && npm run build:tsc && npm run build:env",
+    "build:tsc": "node init && tsc",
     "test": "node test_prompt_contract.js && node test_codementor_alerts.js && node test_benchmark.js",
     "typecheck": "tsc --noEmit"
   },
@@ -30,9 +30,11 @@
   "devDependencies": {
     "@types/chrome": "^0.0.300",
     "@types/node": "^26.1.1",
+    "dotenv": "^8.2.0",
     "esbuild": "^0.28.1",
+    "node-fetch": "^3.3.2",
     "tsx": "^4.7.0",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.4.5"
   }
 }
